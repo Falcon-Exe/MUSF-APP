@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:intl/intl.dart';
 
 class StudentNotificationBadge extends StatelessWidget {
   final String committeeName;
@@ -60,16 +61,18 @@ class StudentNotificationBadge extends StatelessWidget {
                 ),
               ),
               Expanded(
-                child: StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance
-                      .collection('committee_notifications')
-                      .where('committee', isEqualTo: committeeName)
-                      .snapshots(),
+                child: StreamBuilder<List<Map<String, dynamic>>>(
+                  stream: Supabase.instance.client
+                      .from('committee_notifications')
+                      .stream(primaryKey: ['id'])
+                      .eq('committee', committeeName)
+                      .order('created_at', ascending: false),
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return const Center(child: CircularProgressIndicator());
                     }
-                    if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                    final docs = snapshot.data ?? [];
+                    if (docs.isEmpty) {
                       return const Center(
                         child: Text(
                           "No notifications found.",
@@ -77,29 +80,21 @@ class StudentNotificationBadge extends StatelessWidget {
                         ),
                       );
                     }
-                    final docs = snapshot.data!.docs
-                      ..sort((a, b) {
-                        final aTs =
-                            (a.data() as Map<String, dynamic>)['timestamp']
-                                as Timestamp?;
-                        final bTs =
-                            (b.data() as Map<String, dynamic>)['timestamp']
-                                as Timestamp?;
-                        if (aTs == null && bTs == null) return 0;
-                        if (aTs == null) return 1;
-                        if (bTs == null) return -1;
-                        return bTs.compareTo(aTs);
-                      });
+
                     return ListView.builder(
                       padding: const EdgeInsets.all(20),
                       itemCount: docs.length,
                       itemBuilder: (context, index) {
-                        final data = docs[index].data() as Map<String, dynamic>;
+                        final data = docs[index];
                         final title = data['title'] ?? 'Notice';
                         final message = data['message'] ?? '';
-                        final Timestamp? ts = data['timestamp'];
-                        final String timeStr = ts != null
-                            ? "${ts.toDate().day}/${ts.toDate().month}/${ts.toDate().year}"
+                        final rawTs = data['timestamp'] ?? data['created_at'];
+                        DateTime? dt;
+                        if (rawTs != null) {
+                          dt = DateTime.tryParse(rawTs.toString());
+                        }
+                        final String timeStr = dt != null
+                            ? DateFormat('dd/MM/yyyy').format(dt)
                             : 'Just now';
 
                         return Container(
@@ -141,12 +136,13 @@ class StudentNotificationBadge extends StatelessWidget {
                                     ),
                                     onSelected: (value) async {
                                       if (value == 'delete') {
-                                        await FirebaseFirestore.instance
-                                            .collection(
-                                              'committee_notifications',
-                                            )
-                                            .doc(docs[index].id)
-                                            .delete();
+                                        final docId = data['id']?.toString() ?? '';
+                                        if (docId.isNotEmpty) {
+                                          await Supabase.instance.client
+                                              .from('committee_notifications')
+                                              .delete()
+                                              .eq('id', docId);
+                                        }
                                       }
                                     },
                                     itemBuilder: (context) => [
@@ -199,13 +195,13 @@ class StudentNotificationBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('committee_notifications')
-          .where('committee', isEqualTo: committeeName)
-          .snapshots(),
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: Supabase.instance.client
+          .from('committee_notifications')
+          .stream(primaryKey: ['id'])
+          .eq('committee', committeeName),
       builder: (context, snapshot) {
-        bool hasData = snapshot.hasData && snapshot.data!.docs.isNotEmpty;
+        bool hasData = snapshot.hasData && (snapshot.data?.isNotEmpty ?? false);
 
         return Stack(
           alignment: Alignment.center,

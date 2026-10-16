@@ -3,7 +3,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -260,13 +259,12 @@ class _FinanceSavingsPageState extends State<FinanceSavingsPage> {
   }
 
   Widget _buildVaultHeader() {
-    return StreamBuilder(
+    return StreamBuilder<List<Map<String, dynamic>>>(
       stream: _controller.treasuryStream,
       builder: (context, snapshot) {
         double total = 0;
         if (snapshot.hasData) {
-          for (var doc in snapshot.data!.docs) {
-            final data = doc.data() as Map<String, dynamic>;
+          for (var data in snapshot.data!) {
             double amt = (data['amount'] as num?)?.toDouble() ?? 0;
             if (data['type'] == 'income') {
               total += amt;
@@ -604,12 +602,13 @@ class _FinanceSavingsPageState extends State<FinanceSavingsPage> {
 
   Future<_SavingsReportInputs> _loadSavingsReportInputs() async {
     final students = await _fetchReportStudents();
-    final treasury = await FirebaseFirestore.instance
-        .collection('treasury')
-        .get();
+    final treasury = await Supabase.instance.client
+        .from('treasury')
+        .select('student_id, amount, type, date, created_at');
+    final treasuryList = List<Map<String, dynamic>>.from(treasury);
     return _SavingsReportInputs(
       students: students,
-      treasuryDocs: treasury.docs,
+      treasuryDocs: treasuryList,
     );
   }
 
@@ -707,7 +706,7 @@ class _FinanceSavingsPageState extends State<FinanceSavingsPage> {
 
   _SavingsReports _buildSavingsReports(
     List<Map<String, dynamic>> studentRows,
-    List<QueryDocumentSnapshot> treasuryDocs,
+    List<Map<String, dynamic>> treasuryDocs,
   ) {
     final Map<String, _SavingsStudentReport> byStudentId = {};
 
@@ -722,15 +721,14 @@ class _FinanceSavingsPageState extends State<FinanceSavingsPage> {
       );
     }
 
-    for (final doc in treasuryDocs) {
-      final data = doc.data() as Map<String, dynamic>;
-      final studentID = (data['studentID'] ?? '').toString().trim();
+    for (final data in treasuryDocs) {
+      final studentID = (data['student_id'] ?? data['studentID'] ?? '').toString().trim();
       if (studentID.isEmpty) continue;
 
       final report = byStudentId.putIfAbsent(
         studentID,
         () => _SavingsStudentReport(
-          name: (data['studentName'] ?? 'Unknown').toString(),
+          name: (data['student_name'] ?? data['studentName'] ?? 'Unknown').toString(),
           studentID: studentID,
           course: 'N/A',
         ),
@@ -902,11 +900,11 @@ class _FinanceSavingsPageState extends State<FinanceSavingsPage> {
     );
   }
 
-  void _showPaymentHistory(List<QueryDocumentSnapshot> treasuryDocs) {
+  void _showPaymentHistory(List<Map<String, dynamic>> treasuryDocs) {
     final transactions = treasuryDocs.toList()
       ..sort((a, b) {
-        final aDate = _asDate((a.data() as Map<String, dynamic>)['date']);
-        final bDate = _asDate((b.data() as Map<String, dynamic>)['date']);
+        final aDate = _asDate(a['date'] ?? a['created_at']);
+        final bDate = _asDate(b['date'] ?? b['created_at']);
         return bDate.compareTo(aDate);
       });
 
@@ -918,11 +916,11 @@ class _FinanceSavingsPageState extends State<FinanceSavingsPage> {
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
         itemCount: transactions.length,
         itemBuilder: (context, index) {
-          final data = transactions[index].data() as Map<String, dynamic>;
+          final data = transactions[index];
           final isIncome = data['type'] == 'income';
           final amount = _asInt(data['amount']);
-          final studentID = (data['studentID'] ?? 'N/A').toString();
-          final date = _formatDate(data['date']);
+          final studentID = (data['student_id'] ?? data['studentID'] ?? 'N/A').toString();
+          final date = _formatDate(data['date'] ?? data['created_at']);
           final color = isIncome ? AppColors.accentTeal : AppColors.alertRed;
 
           return ListTile(
@@ -1000,8 +998,8 @@ class _FinanceSavingsPageState extends State<FinanceSavingsPage> {
   }
 
   DateTime _asDate(dynamic value) {
-    if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
+    if (value is String) return DateTime.tryParse(value) ?? DateTime.fromMillisecondsSinceEpoch(0);
     return DateTime.fromMillisecondsSinceEpoch(0);
   }
 
@@ -1021,7 +1019,7 @@ class _SavingsReports {
 
 class _SavingsReportInputs {
   final List<Map<String, dynamic>> students;
-  final List<QueryDocumentSnapshot> treasuryDocs;
+  final List<Map<String, dynamic>> treasuryDocs;
 
   const _SavingsReportInputs({
     required this.students,

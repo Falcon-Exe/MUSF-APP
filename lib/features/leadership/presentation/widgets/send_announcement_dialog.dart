@@ -1,7 +1,6 @@
 // lib/features/leadership/presentation/widgets/send_announcement_dialog.dart
 
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 class SendAnnouncementDialog extends StatefulWidget {
@@ -244,25 +243,16 @@ class _SendAnnouncementDialogState extends State<SendAnnouncementDialog> {
       final user = supabase.Supabase.instance.client.auth.currentUser;
       if (user == null) return;
 
-      // In a real app, we'd fetch the user's name and role from their profile.
-      // For now, we'll try to fetch it from the 'students' collection or use fallback.
-      final userDoc = await FirebaseFirestore.instance
-          .collection('students')
-          .doc(user.id)
-          .get();
-      Map<String, dynamic>? userData = userDoc.data();
-      if (!userDoc.exists || userData == null) {
+      Map<String, dynamic>? userData;
+      try {
         final email = user.email ?? '';
         final searchId = email.contains('@') ? email.split('@')[0] : email;
-        final query = await FirebaseFirestore.instance
-            .collection('students')
-            .where('studentID', isEqualTo: searchId.trim())
-            .limit(1)
-            .get();
-        if (query.docs.isNotEmpty) {
-          userData = query.docs.first.data();
-        }
-      }
+        userData = await supabase.Supabase.instance.client
+            .from('students')
+            .select()
+            .or('id.eq.${user.id},student_id.eq.${searchId.trim()}')
+            .maybeSingle();
+      } catch (_) {}
 
       String senderName =
           userData?['fullName'] ??

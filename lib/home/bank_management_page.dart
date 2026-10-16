@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../features/home/presentation/pages/home_page.dart';
@@ -22,91 +21,96 @@ class BankManagementPage extends StatelessWidget {
       future: _isSupabaseAdmin(),
       builder: (context, adminSnapshot) {
         final isAdmin = adminSnapshot.data == true;
-        return StreamBuilder<QuerySnapshot>(
-          stream: isAdmin
-              ? FirebaseFirestore.instance.collection('treasury').snapshots()
-              : FirebaseFirestore.instance
-                    .collection('treasury')
-                    .where('studentID', isEqualTo: studentID)
-                    .snapshots(),
-          builder: (context, snapshot) {
-        double income = 0.0;
-        double expense = 0.0;
+        final client = Supabase.instance.client;
+        final stream = isAdmin
+            ? client
+                .from('treasury')
+                .stream(primaryKey: ['id'])
+                .order('date', ascending: false)
+            : client
+                .from('treasury')
+                .stream(primaryKey: ['id'])
+                .eq('student_id', studentID);
 
-        if (snapshot.hasData) {
-          for (var doc in snapshot.data!.docs) {
-            var data = doc.data() as Map<String, dynamic>;
-            double amount =
-                double.tryParse(data['amount']?.toString() ?? '0') ?? 0.0;
-            if (data['type'] == 'income') {
-              income += amount;
-            } else {
-              expense += amount;
+        return StreamBuilder<List<Map<String, dynamic>>>(
+          stream: stream,
+          builder: (context, snapshot) {
+            double income = 0.0;
+            double expense = 0.0;
+
+            if (snapshot.hasData) {
+              for (var data in snapshot.data!) {
+                double amount =
+                    double.tryParse(data['amount']?.toString() ?? '0') ?? 0.0;
+                if (data['type'] == 'income') {
+                  income += amount;
+                } else {
+                  expense += amount;
+                }
+              }
             }
-          }
-        }
 
             return Scaffold(
-          backgroundColor: AppColors.pageBackground,
-          appBar: AppBar(
-            leading: IconButton(
-              icon: const Icon(
-                Icons.arrow_back_ios_new,
-                color: Colors.white,
-                size: 20,
-              ),
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.home_outlined, color: Colors.white),
-                onPressed: () => Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => HomePage(
-                      studentID: studentID,
-                      studentName: studentName,
-                      isAdmin: isAdmin,
+              backgroundColor: AppColors.pageBackground,
+              appBar: AppBar(
+                leading: IconButton(
+                  icon: const Icon(
+                    Icons.arrow_back_ios_new,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.home_outlined, color: Colors.white),
+                    onPressed: () => Navigator.pushAndRemoveUntil(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => HomePage(
+                          studentID: studentID,
+                          studentName: studentName,
+                          isAdmin: isAdmin,
+                        ),
+                      ),
+                      (route) => false,
                     ),
                   ),
-                  (route) => false,
+                  const StudentNotificationBadge(
+                    committeeName: "Bank",
+                    themeColor: Colors.white,
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                title: Text(
+                  isAdmin ? "Global Bank Admin" : "$studentName's Bank",
+                  overflow: TextOverflow.ellipsis,
                 ),
+                backgroundColor: AppColors.darkNavy,
+                foregroundColor: Colors.white,
+                centerTitle: true,
+                elevation: 0,
               ),
-              const StudentNotificationBadge(
-                committeeName: "Bank",
-                themeColor: Colors.white,
-              ),
-              const SizedBox(width: 8),
-            ],
-            title: Text(
-              isAdmin ? "Global Bank Admin" : "$studentName's Bank",
-              overflow: TextOverflow.ellipsis,
-            ),
-            backgroundColor: AppColors.darkNavy,
-            foregroundColor: Colors.white,
-            centerTitle: true,
-            elevation: 0,
-          ),
-          body: Column(
-            children: [
-              _buildBalanceCard(income - expense, income, expense, isAdmin),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 25, vertical: 15),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    "Transaction Passbook",
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.darkNavy,
+              body: Column(
+                children: [
+                  _buildBalanceCard(income - expense, income, expense, isAdmin),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 25, vertical: 15),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        "Transaction Passbook",
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.darkNavy,
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  Expanded(child: _buildPassbookList(snapshot)),
+                ],
               ),
-              Expanded(child: _buildPassbookList(snapshot)),
-            ],
-          ),
             );
           },
         );
@@ -128,9 +132,11 @@ class BankManagementPage extends StatelessWidget {
     return role == 'admin' || row?['is_admin'] == true;
   }
 
-  Widget _buildPassbookList(AsyncSnapshot<QuerySnapshot> snap) {
-    if (!snap.hasData) return const Center(child: CircularProgressIndicator());
-    var docs = snap.data!.docs;
+  Widget _buildPassbookList(AsyncSnapshot<List<Map<String, dynamic>>> snap) {
+    if (snap.connectionState == ConnectionState.waiting) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    var docs = snap.data ?? [];
     if (docs.isEmpty) {
       return const Center(child: Text("No transactions found."));
     }
@@ -139,7 +145,7 @@ class BankManagementPage extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20),
       itemCount: docs.length,
       itemBuilder: (context, index) {
-        var data = docs[index].data() as Map<String, dynamic>;
+        var data = docs[index];
         bool isInc = data['type'] == 'income';
 
         Color bgColor = isInc
@@ -148,9 +154,14 @@ class BankManagementPage extends StatelessWidget {
         Color themeColor = isInc ? AppColors.accentTeal : AppColors.alertRed;
 
         String dateStr = "Unknown";
-        if (data['date'] != null) {
-          DateTime dt = (data['date'] as Timestamp).toDate();
-          dateStr = DateFormat('dd MMM yyyy, hh:mm a').format(dt);
+        final rawDate = data['date'] ?? data['created_at'];
+        if (rawDate != null) {
+          DateTime? dt;
+          if (rawDate is DateTime) dt = rawDate;
+          if (rawDate is String) dt = DateTime.tryParse(rawDate);
+          if (dt != null) {
+            dateStr = DateFormat('dd MMM yyyy, hh:mm a').format(dt.toLocal());
+          }
         }
 
         return Container(
@@ -173,7 +184,7 @@ class BankManagementPage extends StatelessWidget {
               ),
             ),
             title: Text(
-              data['studentName'] ?? "Student",
+              data['student_name'] ?? data['studentName'] ?? data['student_id'] ?? "Student",
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             subtitle: Text(
@@ -224,47 +235,24 @@ class BankManagementPage extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            isAdmin ? "TOTAL COLLEGE FUND" : "AVAILABLE SAVINGS",
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 12,
-              letterSpacing: 1.2,
-            ),
+            isAdmin ? "Global Vault Reserves" : "Your Total Balance",
+            style: const TextStyle(color: Colors.white70, fontSize: 13),
           ),
-          const SizedBox(height: 10),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              "₹ ${balance.toStringAsFixed(2)}",
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 36,
-                fontWeight: FontWeight.bold,
-              ),
+          const SizedBox(height: 5),
+          Text(
+            "₹${balance.toStringAsFixed(2)}",
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 32,
+              fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 25),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Expanded(
-                child: _balanceStat(
-                  "Income",
-                  inc,
-                  Icons.call_received,
-                  AppColors.accentTeal,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _balanceStat(
-                  "Expense",
-                  exp,
-                  Icons.call_made,
-                  AppColors.accentAmber,
-                ),
-              ),
+              _buildMiniStats("Deposits", inc, AppColors.accentTeal),
+              _buildMiniStats("Withdrawals", exp, AppColors.alertRed),
             ],
           ),
         ],
@@ -272,34 +260,21 @@ class BankManagementPage extends StatelessWidget {
     );
   }
 
-  Widget _balanceStat(String lab, double val, IconData icon, Color col) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+  Widget _buildMiniStats(String title, double val, Color color) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: col, size: 16),
-        const SizedBox(width: 4),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                lab,
-                style: const TextStyle(color: Colors.white60, fontSize: 11),
-                overflow: TextOverflow.ellipsis,
-              ),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  "₹${val.toStringAsFixed(0)}",
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-            ],
+        Text(
+          title,
+          style: const TextStyle(color: Colors.white60, fontSize: 11),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          "₹${val.toStringAsFixed(2)}",
+          style: TextStyle(
+            color: color,
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
           ),
         ),
       ],

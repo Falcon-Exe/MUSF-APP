@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 // 🟢 PUBLIC THEME
 class ExecutiveTheme {
@@ -73,11 +73,11 @@ class _CommitteeManagementScreenState extends State<CommitteeManagementScreen> {
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('committee_awards')
-            .where('committee', isEqualTo: widget.committeeName)
-            .snapshots(),
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: Supabase.instance.client
+            .from('committee_awards')
+            .stream(primaryKey: ['id'])
+            .eq('committee', widget.committeeName),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
@@ -86,7 +86,7 @@ class _CommitteeManagementScreenState extends State<CommitteeManagementScreen> {
               ),
             );
           }
-          final awards = snapshot.data?.docs ?? [];
+          final awards = snapshot.data ?? [];
           return ListView(
             padding: const EdgeInsets.all(24),
             children: [
@@ -99,9 +99,9 @@ class _CommitteeManagementScreenState extends State<CommitteeManagementScreen> {
               if (awards.isEmpty)
                 _buildEmptyState()
               else
-                ...awards.map((doc) {
-                  final data = doc.data() as Map<String, dynamic>;
-                  return _buildAwardCommandCard(doc.id, data);
+                ...awards.map((data) {
+                  final docId = data['id']?.toString() ?? '';
+                  return _buildAwardCommandCard(docId, data);
                 }),
               const SizedBox(height: 100),
             ],
@@ -112,6 +112,10 @@ class _CommitteeManagementScreenState extends State<CommitteeManagementScreen> {
   }
 
   Widget _buildAwardCommandCard(String docId, Map<String, dynamic> data) {
+    final goldId = data['gold_id'] ?? data['goldId'];
+    final silverId = data['silver_id'] ?? data['silverId'];
+    final bronzeId = data['bronze_id'] ?? data['bronzeId'];
+
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
@@ -159,15 +163,15 @@ class _CommitteeManagementScreenState extends State<CommitteeManagementScreen> {
                       ),
                     ),
                     const SizedBox(height: 6),
-                    _previewRow("🥇 Gold:", data['goldId'], Colors.amber),
+                    _previewRow("🥇 Gold:", goldId?.toString(), Colors.amber),
                     _previewRow(
                       "🥈 Silver:",
-                      data['silverId'],
+                      silverId?.toString(),
                       const Color(0xFF94A3B8),
                     ),
                     _previewRow(
                       "🥉 Bronze:",
-                      data['bronzeId'],
+                      bronzeId?.toString(),
                       const Color(0xFFB45309),
                     ),
                     const SizedBox(height: 8),
@@ -183,9 +187,8 @@ class _CommitteeManagementScreenState extends State<CommitteeManagementScreen> {
                 ),
               ),
               const Icon(
-                Icons.arrow_forward_ios_rounded,
-                color: Colors.black12,
-                size: 14,
+                Icons.chevron_right_rounded,
+                color: ExecutiveTheme.textMuted,
               ),
             ],
           ),
@@ -235,10 +238,10 @@ class _CommitteeManagementScreenState extends State<CommitteeManagementScreen> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () async {
-              await FirebaseFirestore.instance
-                  .collection('committee_awards')
-                  .doc(docId)
-                  .delete();
+              await Supabase.instance.client
+                  .from('committee_awards')
+                  .delete()
+                  .eq('id', docId);
               if (context.mounted) Navigator.pop(context);
             },
             child: const Text("DELETE", style: TextStyle(color: Colors.white)),
@@ -318,18 +321,21 @@ class _CommitteeManagementScreenState extends State<CommitteeManagementScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: ExecutiveTheme.primaryMidnight,
             ),
-            onPressed: () {
-              FirebaseFirestore.instance.collection('committee_awards').add({
-                'committee': widget.committeeName,
-                'title': titleCtrl.text.trim(),
-                'date':
-                    "Published ${DateTime.now().day}/${DateTime.now().month}",
-                'goldId': '',
-                'silverId': '',
-                'bronzeId': '',
-                'resultsPublished': true,
-              });
-              Navigator.pop(context);
+            onPressed: () async {
+              final title = titleCtrl.text.trim();
+              if (title.isNotEmpty) {
+                await Supabase.instance.client.from('committee_awards').insert({
+                  'committee': widget.committeeName,
+                  'title': title,
+                  'date':
+                      "Published ${DateTime.now().day}/${DateTime.now().month}",
+                  'gold_id': '',
+                  'silver_id': '',
+                  'bronze_id': '',
+                  'results_published': true,
+                });
+              }
+              if (context.mounted) Navigator.pop(context);
             },
             child: const Text("CREATE", style: TextStyle(color: Colors.white)),
           ),
@@ -343,9 +349,15 @@ class _CommitteeManagementScreenState extends State<CommitteeManagementScreen> {
     String docId,
     Map<String, dynamic> data,
   ) {
-    final gold = TextEditingController(text: data['goldId']);
-    final silver = TextEditingController(text: data['silverId']);
-    final bronze = TextEditingController(text: data['bronzeId']);
+    final gold = TextEditingController(
+      text: (data['gold_id'] ?? data['goldId'] ?? '').toString(),
+    );
+    final silver = TextEditingController(
+      text: (data['silver_id'] ?? data['silverId'] ?? '').toString(),
+    );
+    final bronze = TextEditingController(
+      text: (data['bronze_id'] ?? data['bronzeId'] ?? '').toString(),
+    );
 
     showModalBottomSheet(
       context: context,
@@ -366,7 +378,7 @@ class _CommitteeManagementScreenState extends State<CommitteeManagementScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              data['title'].toString().toUpperCase(),
+              (data['title'] ?? '').toString().toUpperCase(),
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 18,
@@ -399,14 +411,14 @@ class _CommitteeManagementScreenState extends State<CommitteeManagementScreen> {
                   ),
                 ),
                 onPressed: () async {
-                  await FirebaseFirestore.instance
-                      .collection('committee_awards')
-                      .doc(docId)
+                  await Supabase.instance.client
+                      .from('committee_awards')
                       .update({
-                        'goldId': gold.text.trim(),
-                        'silverId': silver.text.trim(),
-                        'bronzeId': bronze.text.trim(),
-                      });
+                        'gold_id': gold.text.trim(),
+                        'silver_id': silver.text.trim(),
+                        'bronze_id': bronze.text.trim(),
+                      })
+                      .eq('id', docId);
                   if (context.mounted) Navigator.pop(context);
                 },
                 child: const Text(
@@ -432,7 +444,7 @@ class _CommitteeManagementScreenState extends State<CommitteeManagementScreen> {
   ) {
     return TextField(
       controller: ctrl,
-      keyboardType: TextInputType.number,
+      keyboardType: TextInputType.text,
       style: const TextStyle(color: Colors.white),
       decoration: InputDecoration(
         prefixIcon: Icon(Icons.stars, color: color),
@@ -465,17 +477,15 @@ class StudentNameWidget extends StatelessWidget {
       return Text("---", style: style);
     }
 
-    return FutureBuilder<QuerySnapshot>(
-      future: FirebaseFirestore.instance
-          .collection('users')
-          .where('studentID', isEqualTo: studentId)
-          .limit(1)
-          .get(),
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: Supabase.instance.client
+          .from('students')
+          .select('full_name')
+          .eq('student_id', studentId)
+          .maybeSingle(),
       builder: (context, snapshot) {
-        if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
-          final userData =
-              snapshot.data!.docs.first.data() as Map<String, dynamic>;
-          final String name = userData['name'] ?? "Unknown";
+        if (snapshot.hasData && snapshot.data != null) {
+          final String name = snapshot.data!['full_name'] ?? "Unknown";
           return Text("$name ($studentId)", style: style);
         }
         return Text("($studentId)", style: style);

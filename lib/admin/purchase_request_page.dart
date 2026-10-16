@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/committee_theme.dart';
@@ -67,27 +67,26 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage>
 
     setState(() => _isSubmitting = true);
     try {
-      final docRef = await FirebaseFirestore.instance.collection('purchase_requests').add({
-        'committeeName': widget.committeeName,
-        'requestTitle': item,
+      final client = Supabase.instance.client;
+      final inserted = await client.from('purchase_requests').insert({
+        'committee_name': widget.committeeName,
+        'request_title': item,
+        'item_name': item,
         'reason': desc,
         'amount': cost,
         'status': 'pending',
-        'createdAt': FieldValue.serverTimestamp(),
-        'reviewedAt': null,
-        'rejectionReason': null,
-        'requestedBy': 'Committee Lead',
-      });
+        'requested_by': 'Committee Lead',
+      }).select('id').single();
+
+      final refId = inserted['id']?.toString() ?? '';
 
       // Notify Treasurer/Admins
-      await FirebaseFirestore.instance.collection('notifications').add({
-        'studentID': 'admin',
+      await client.from('notifications').insert({
+        'student_id': 'admin',
         'title': 'New Fund Request',
         'message': '${widget.committeeName} requested ₹$cost for $item.',
-        'createdAt': FieldValue.serverTimestamp(),
-        'isRead': false,
         'type': 'purchase_request',
-        'referenceId': docRef.id,
+        'reference_id': refId,
       });
 
       if (mounted) {
@@ -142,10 +141,10 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage>
 
     if (confirm == true) {
       try {
-        await FirebaseFirestore.instance
-            .collection('purchase_requests')
-            .doc(docId)
-            .delete();
+        await Supabase.instance.client
+            .from('purchase_requests')
+            .delete()
+            .eq('id', docId);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -352,19 +351,29 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage>
     }
   }
 
+  DateTime _asDateTime(dynamic val) {
+    if (val is DateTime) return val;
+    if (val is String) return DateTime.tryParse(val) ?? DateTime.fromMillisecondsSinceEpoch(0);
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
   /// Builds the list for a given status filter.
   /// Pass null to show all requests.
   Widget _buildList(String? statusFilter) {
-    Query query = FirebaseFirestore.instance
-        .collection('purchase_requests')
-        .where('committeeName', isEqualTo: widget.committeeName);
+    final client = Supabase.instance.client;
+    final stream = statusFilter != null
+        ? client
+            .from('purchase_requests')
+            .stream(primaryKey: ['id'])
+            .eq('committee_name', widget.committeeName)
+            .eq('status', statusFilter)
+        : client
+            .from('purchase_requests')
+            .stream(primaryKey: ['id'])
+            .eq('committee_name', widget.committeeName);
 
-    if (statusFilter != null) {
-      query = query.where('status', isEqualTo: statusFilter);
-    }
-
-    return StreamBuilder<QuerySnapshot>(
-      stream: query.snapshots(),
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: stream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Center(
@@ -381,13 +390,13 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage>
           );
         }
 
-        final allDocs = snapshot.data?.docs ?? [];
+        final allDocs = snapshot.data ?? [];
 
         // Sort in memory to avoid index issues
-        final docs = List.from(allDocs);
+        final docs = List<Map<String, dynamic>>.from(allDocs);
         docs.sort((a, b) {
-          final aTime = (a.data() as Map)['createdAt'] ?? (a.data() as Map)['submittedAt'] ?? Timestamp.now();
-          final bTime = (b.data() as Map)['createdAt'] ?? (b.data() as Map)['submittedAt'] ?? Timestamp.now();
+          final aTime = _asDateTime(a['created_at'] ?? a['createdAt'] ?? a['submitted_at']);
+          final bTime = _asDateTime(b['created_at'] ?? b['createdAt'] ?? b['submitted_at']);
           return bTime.compareTo(aTime);
         });
 
@@ -438,20 +447,21 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage>
         return ListView.separated(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
           itemCount: docs.length,
-                          separatorBuilder: (context, index) => const SizedBox(height: 12),
+          separatorBuilder: (context, index) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
-            final data = docs[index].data() as Map<String, dynamic>;
+            final data = docs[index];
+            final reqDocId = data['id']?.toString() ?? '';
             final status = (data['status'] ?? 'pending') as String;
-            final cost = data['amount'] ?? data['estimatedCost'] ?? 0;
-            final submittedAt = (data['createdAt'] ?? data['submittedAt']) as Timestamp?;
-            final reviewedAt = data['reviewedAt'] as Timestamp?;
+            final cost = data['amount'] ?? data['estimated_cost'] ?? data['estimatedCost'] ?? 0;
+            final submittedAtRaw = data['created_at'] ?? data['createdAt'] ?? data['submitted_at'];
+            final reviewedAtRaw = data['reviewed_at'] ?? data['reviewedAt'];
+            final submittedAt = submittedAtRaw != null ? _asDateTime(submittedAtRaw) : null;
+            final reviewedAt = reviewedAtRaw != null ? _asDateTime(reviewedAtRaw) : null;
             final dateStr = submittedAt != null
-                ? DateFormat(
-                    'dd MMM yyyy, hh:mm a',
-                  ).format(submittedAt.toDate())
+                ? DateFormat('dd MMM yyyy, hh:mm a').format(submittedAt.toLocal())
                 : 'Pending...';
             final reviewedStr = reviewedAt != null
-                ? DateFormat('dd MMM yyyy, hh:mm a').format(reviewedAt.toDate())
+                ? DateFormat('dd MMM yyyy, hh:mm a').format(reviewedAt.toLocal())
                 : null;
 
             final statusColor = _statusColor(status);
@@ -581,7 +591,7 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage>
                                       size: 20,
                                     ),
                                     onPressed: () =>
-                                        _deleteRequest(docs[index].id),
+                                        _deleteRequest(reqDocId),
                                     tooltip: 'Delete Request',
                                     constraints: const BoxConstraints(),
                                     padding: EdgeInsets.zero,

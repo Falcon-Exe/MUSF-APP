@@ -1,8 +1,7 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:typed_data';
 
 abstract class ReelsRepository {
-  Stream<QuerySnapshot> getReelsStream(String committee);
+  Stream<List<Map<String, dynamic>>> getReelsStream(String committee);
 
   Future<String> uploadImage(Uint8List bytes, String fileName);
 

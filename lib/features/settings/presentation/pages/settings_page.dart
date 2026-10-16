@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/services/preferences_service.dart';
 import '../../../../core/theme/app_colors.dart';
 
@@ -96,12 +96,17 @@ class _SettingsPageState extends State<SettingsPage> {
                 return;
               }
 
-              // Save to Firestore. (A Cloud Function could listen to this collection and trigger FCM).
-              await FirebaseFirestore.instance.collection('announcements').add({
+              await Supabase.instance.client.from('executive_announcements').insert({
                 'title': titleController.text.trim(),
                 'body': bodyController.text.trim(),
-                'timestamp': FieldValue.serverTimestamp(),
                 'sender': 'Admin',
+                'timestamp': DateTime.now().toUtc().toIso8601String(),
+              });
+              await Supabase.instance.client.from('notifications').insert({
+                'student_id': 'all',
+                'title': titleController.text.trim(),
+                'message': bodyController.text.trim(),
+                'type': 'broadcast',
               });
 
               if (!context.mounted) return;

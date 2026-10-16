@@ -31,20 +31,19 @@ class _FinanceLedgerPageState extends State<FinanceLedgerPage> {
         centerTitle: true, elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: StreamBuilder(
+      body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: _controller.aeroLedgerStream,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final docs = snapshot.data?.docs ?? [];
+          final docs = snapshot.data ?? [];
           int totalIncome = 0;
           int totalExpense = 0;
 
-          for (var doc in docs) {
-            final data = doc.data();
-            int amt = data['amount'] ?? 0;
+          for (var data in docs) {
+            int amt = (data['amount'] as num?)?.toInt() ?? int.tryParse(data['amount']?.toString() ?? '') ?? 0;
             if (data['type'] == 'INCOME') { totalIncome += amt; } else { totalExpense += amt; }
           }
 
@@ -77,10 +76,11 @@ class _FinanceLedgerPageState extends State<FinanceLedgerPage> {
                 SliverList(
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
-                      final doc = docs[index];
+                      final data = docs[index];
+                      final docId = data['id']?.toString() ?? '';
                       return LedgerItemCard(
-                        data: doc.data(),
-                        docId: doc.id,
+                        data: data,
+                        docId: docId,
                         onDismissed: (id) => _controller.deleteLedger(context: context, docId: id),
                       );
                     },

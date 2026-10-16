@@ -24,8 +24,13 @@ class LedgerItemCard extends StatelessWidget {
 
     String dateStr = "Unknown Date";
     if (data['date'] != null) {
-      final date = data['date'];
-      dateStr = DateFormat('dd MMM yyyy').format(date is DateTime ? date : date.toDate());
+      final rawDate = data['date'];
+      final dt = rawDate is DateTime
+          ? rawDate
+          : DateTime.tryParse(rawDate.toString());
+      if (dt != null) {
+        dateStr = DateFormat('dd MMM yyyy').format(dt);
+      }
     }
 
     return Dismissible(

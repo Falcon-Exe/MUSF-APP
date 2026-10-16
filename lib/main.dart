@@ -16,7 +16,6 @@ import 'utils/admin_page_helper.dart';
 // 🟢 Added the notification service import here
 import 'home/constitution_page.dart';
 import 'dart:async';
-// Unused cloud_firestore import removed
 import 'core/services/notification_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'core/services/preferences_service.dart';
@@ -228,7 +227,6 @@ class _AuthGateState extends State<AuthGate> {
       if (studentData != null) {
         data = _normalizeSupabaseStudentData(studentData, userEmail);
         docId =
-            studentData['firestore_id']?.toString() ??
             studentData['id']?.toString() ??
             user.id;
       } else {

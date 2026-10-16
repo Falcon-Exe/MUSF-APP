@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'arts_sheets_import_dialog.dart';
 
-import '../../../../admin/reel_upload_page.dart';
+import '../../../../features/reels/presentation/pages/reel_upload_page.dart';
 import '../../../../admin/event_management_page.dart';
 import '../../../../admin/samajyam_admin_page.dart';
 import '../../../../admin/admin_committee_prize.dart';

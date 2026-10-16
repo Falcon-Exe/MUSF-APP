@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 
 class ReelsPage extends StatefulWidget {
@@ -13,18 +13,17 @@ class _ReelsPageState extends State<ReelsPage>
     with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true; // 🟢 Keep Reels state alive
-  // 🟢 Connects to the database where admins uploaded their photos
-  final CollectionReference _postsRef = FirebaseFirestore.instance.collection(
-    'committee_reels',
-  );
 
-  late final Stream<QuerySnapshot> _reelsStream;
+  late final Stream<List<Map<String, dynamic>>> _reelsStream;
 
   @override
   void initState() {
     super.initState();
-    // 🟢 Cache the stream in initState so it doesn't reconnect on every page build/swipe
-    _reelsStream = _postsRef.orderBy('timestamp', descending: true).snapshots();
+    // 🟢 Real-time stream from Supabase committee_reels
+    _reelsStream = Supabase.instance.client
+        .from('committee_reels')
+        .stream(primaryKey: ['id'])
+        .order('created_at', ascending: false);
   }
 
   @override
@@ -34,7 +33,7 @@ class _ReelsPageState extends State<ReelsPage>
       backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
       // 🟢 Real-time StreamBuilder fetches the photos
-      body: StreamBuilder<QuerySnapshot>(
+      body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: _reelsStream,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -52,7 +51,7 @@ class _ReelsPageState extends State<ReelsPage>
             );
           }
 
-          final docs = snapshot.data?.docs ?? [];
+          final docs = snapshot.data ?? [];
 
           if (docs.isEmpty) {
             return const Center(
@@ -79,16 +78,19 @@ class _ReelsPageState extends State<ReelsPage>
             scrollDirection: Axis.vertical,
             itemCount: docs.length,
             itemBuilder: (context, index) {
-              final data = docs[index].data() as Map<String, dynamic>;
+              final data = docs[index];
 
-              String imageUrl = data['imageUrl'] ?? '';
+              String imageUrl = data['image_url'] ?? data['imageUrl'] ?? '';
               String committee = data['committee'] ?? 'Union';
               String caption = data['caption'] ?? '';
 
-              Timestamp? timestamp = data['timestamp'] as Timestamp?;
+              final rawTs = data['timestamp'] ?? data['created_at'];
               String dateStr = '';
-              if (timestamp != null) {
-                dateStr = DateFormat('dd MMM yyyy').format(timestamp.toDate());
+              if (rawTs != null) {
+                final dt = DateTime.tryParse(rawTs.toString());
+                if (dt != null) {
+                  dateStr = DateFormat('dd MMM yyyy').format(dt);
+                }
               }
 
               return Stack(

@@ -1,7 +1,6 @@
 // lib/features/home/presentation/pages/home_page.dart
 
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 
 import '../../logic/home_controller.dart';
@@ -41,7 +40,8 @@ class _HomePageState extends State<HomePage>
   bool get wantKeepAlive => true;
 
   late final HomeController _controller;
-  StreamSubscription<QuerySnapshot>? _notifSubscription;
+  StreamSubscription<List<Map<String, dynamic>>>? _notifSubscription;
+  final Set<String> _seenNotifIds = {};
   final ScrollController _scrollController = ScrollController();
 
   @override
@@ -54,16 +54,21 @@ class _HomePageState extends State<HomePage>
   }
 
   void _listenForNotifications() {
-    _notifSubscription = _controller.unreadNotifStream.listen((snapshot) {
-      final addedChanges = snapshot.docChanges
-          .where((change) => change.type == DocumentChangeType.added)
+    _notifSubscription = _controller.unreadNotifStream.listen((notifications) {
+      final unreadNew = notifications
+          .where((n) => !_seenNotifIds.contains(n['id']?.toString()))
           .toList();
 
-      if (addedChanges.isEmpty) return;
+      if (unreadNew.isEmpty) return;
 
-      final firstData = addedChanges.first.doc.data() as Map<String, dynamic>;
+      for (final n in unreadNew) {
+        final id = n['id']?.toString();
+        if (id != null) _seenNotifIds.add(id);
+      }
+
+      final firstData = unreadNew.first;
       final title = firstData['title'] ?? 'New Notification';
-      final message = firstData['message'] ?? '';
+      final message = firstData['message'] ?? firstData['body'] ?? '';
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -73,10 +78,10 @@ class _HomePageState extends State<HomePage>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  title,
+                  title.toString(),
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
-                Text(message),
+                Text(message.toString()),
               ],
             ),
             backgroundColor: AppColors.accentTeal,
@@ -86,11 +91,13 @@ class _HomePageState extends State<HomePage>
         );
       }
 
-      final batch = FirebaseFirestore.instance.batch();
-      for (final change in addedChanges) {
-        batch.update(change.doc.reference, {'isRead': true});
+      final idsToMark = unreadNew
+          .map((n) => n['id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+      if (idsToMark.isNotEmpty) {
+        unawaited(_controller.markAsRead(idsToMark));
       }
-      unawaited(batch.commit());
     });
   }
 

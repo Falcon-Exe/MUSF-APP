@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:typed_data';
 import '../data/repositories/leadership_repository.dart';
 import '../data/repositories/announcement_repository.dart';
@@ -63,7 +62,7 @@ class LeadershipController extends ChangeNotifier {
       _repository.deleteComplaint(docId);
 
   // --- Announcements ---
-  Stream<QuerySnapshot> getAnnouncementsStream({String? committeeName}) =>
+  Stream<List<Map<String, dynamic>>> getAnnouncementsStream({String? committeeName}) =>
       _announcementRepo.getAnnouncementsStream(committeeName: committeeName);
 
   Future<void> sendAnnouncement({

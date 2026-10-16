@@ -1,10 +1,8 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 abstract class LibraryRepository {
-  Stream<QuerySnapshot> getStudentsStream();
-  Stream<QuerySnapshot> getHistoryStream(String studentID);
-  Stream<QuerySnapshot> getBooksCatalogStream();
-  
+  Stream<List<Map<String, dynamic>>> getStudentsStream();
+  Stream<List<Map<String, dynamic>>> getHistoryStream(String studentID);
+  Stream<List<Map<String, dynamic>>> getBooksCatalogStream();
+
   Future<void> updateFine({
     required String docId,
     required String studentID,
@@ -27,7 +25,7 @@ abstract class LibraryRepository {
   });
 
   Future<void> deleteBook(String docId);
-  
+
   Future<void> sendNotice({
     required String studentID,
     required String message,

@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../features/prd/presentation/pages/prd_request_desk_page.dart';
-import '../../../../admin/reel_upload_page.dart';
+import '../../../../features/reels/presentation/pages/reel_upload_page.dart';
 import '../../../../admin/event_management_page.dart';
 import '../../../../admin/admin_committee_prize.dart';
 

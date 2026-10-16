@@ -1,10 +1,9 @@
 // lib/features/leadership/presentation/widgets/executive_notices_section.dart
 
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../../logic/leadership_controller.dart';
-import '../../data/repositories/firestore_leadership_repository.dart';
+import '../../data/repositories/supabase_leadership_repository.dart';
 import '../../../../core/widgets/admin_shared_components.dart';
 
 class ExecutiveNoticesSection extends StatefulWidget {
@@ -21,25 +20,23 @@ class _ExecutiveNoticesSectionState extends State<ExecutiveNoticesSection> {
   @override
   void initState() {
     super.initState();
-    _controller = LeadershipController(FirestoreLeadershipRepository());
+    _controller = LeadershipController(SupabaseLeadershipRepository());
   }
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
+    return StreamBuilder<List<Map<String, dynamic>>>(
       stream: _controller.getAnnouncementsStream(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return const SizedBox.shrink();
         }
 
-        final allNotices = snapshot.data!.docs;
+        final allNotices = snapshot.data!;
         
-        // Manual filtering because Firestore complex OR queries are tricky
-        final filteredNotices = allNotices.where((doc) {
-          final data = doc.data() as Map<String, dynamic>;
-          final targetType = data['targetType'] ?? 'all';
-          final targetCommittee = data['targetCommittee'];
+        final filteredNotices = allNotices.where((data) {
+          final targetType = data['target_type'] ?? data['targetType'] ?? 'all';
+          final targetCommittee = data['target_committee'] ?? data['targetCommittee'];
 
           if (targetType == 'all') return true;
           if (targetType == 'admins') return true;
@@ -54,7 +51,7 @@ class _ExecutiveNoticesSectionState extends State<ExecutiveNoticesSection> {
           children: [
             const AdminSectionTitle(title: "EXECUTIVE NOTICES"),
             const SizedBox(height: 12),
-            ...filteredNotices.map((doc) => _buildNoticeCard(context, doc)),
+            ...filteredNotices.map((data) => _buildNoticeCard(context, data)),
             const SizedBox(height: 20),
           ],
         );
@@ -62,10 +59,13 @@ class _ExecutiveNoticesSectionState extends State<ExecutiveNoticesSection> {
     );
   }
 
-  Widget _buildNoticeCard(BuildContext context, DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+  Widget _buildNoticeCard(BuildContext context, Map<String, dynamic> data) {
     final bool isImportant = data['priority'] == 'important';
-    final DateTime? createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+    DateTime? createdAt;
+    final rawTs = data['created_at'] ?? data['timestamp'];
+    if (rawTs != null) {
+      createdAt = DateTime.tryParse(rawTs.toString());
+    }
     final String timeStr = createdAt != null ? DateFormat('MMM d, h:mm a').format(createdAt) : '';
 
     return Container(

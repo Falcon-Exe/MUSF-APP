@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../data/repositories/firestore_reels_repository.dart';
+import '../../data/repositories/supabase_reels_repository.dart';
 import '../../logic/reels_controller.dart';
 import '../widgets/upload_preview_area.dart';
 import '../widgets/uploaded_reels_list.dart';
@@ -19,7 +19,7 @@ class _ReelUploadPageState extends State<ReelUploadPage> {
   @override
   void initState() {
     super.initState();
-    _controller = ReelsController(FirestoreReelsRepository());
+    _controller = ReelsController(SupabaseReelsRepository());
   }
 
   @override

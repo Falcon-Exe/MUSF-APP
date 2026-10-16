@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'student_notification_badge.dart';
@@ -95,30 +94,30 @@ class _StudentLibraryPageState extends State<StudentLibraryPage> {
         content: SizedBox(
           width: double.maxFinite,
           height: 400,
-          child: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('library_payments')
-                .where('studentID', isEqualTo: widget.studentID)
-                .orderBy('date', descending: true)
-                .snapshots(),
+          child: StreamBuilder<List<Map<String, dynamic>>>(
+            stream: Supabase.instance.client
+                .from('library_payments')
+                .stream(primaryKey: ['id'])
+                .eq('student_id', widget.studentID)
+                .order('date', ascending: false),
             builder: (context, snap) {
               if (snap.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
-              if (!snap.hasData || snap.data!.docs.isEmpty) {
+              final docs = snap.data ?? [];
+              if (docs.isEmpty) {
                 return const Center(
                   child: Text("No transaction history found."),
                 );
               }
 
               return ListView.builder(
-                itemCount: snap.data!.docs.length,
+                itemCount: docs.length,
                 itemBuilder: (context, index) {
-                  var data =
-                      snap.data!.docs[index].data() as Map<String, dynamic>;
-                  DateTime dt = data['date'] != null
-                      ? (data['date'] as Timestamp).toDate()
-                      : DateTime.now();
+                  var data = docs[index];
+                  DateTime dt = DateTime.tryParse(data['date']?.toString() ?? '') ??
+                      DateTime.tryParse(data['created_at']?.toString() ?? '') ??
+                      DateTime.now();
                   bool isAddition = data['type'] == 'Addition';
 
                   return ListTile(
@@ -238,18 +237,17 @@ class _StudentLibraryPageState extends State<StudentLibraryPage> {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(32),
-        child: StreamBuilder<QuerySnapshot>(
-          // UPDATE: Added .limit(3) to keep only the 3 newest books
-          stream: FirebaseFirestore.instance
-              .collection('library_books')
-              .orderBy('timestamp', descending: true)
-              .limit(3)
-              .snapshots(),
+        child: StreamBuilder<List<Map<String, dynamic>>>(
+          stream: Supabase.instance.client
+              .from('library_books')
+              .stream(primaryKey: ['id'])
+              .order('created_at', ascending: false)
+              .limit(3),
           builder: (context, snapshot) {
             if (!snapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
             }
-            var bookDocs = snapshot.data?.docs ?? [];
+            var bookDocs = snapshot.data ?? [];
             if (bookDocs.isEmpty) {
               return Container(
                 color: LibraryColors.brandPrimary,
@@ -273,8 +271,8 @@ class _StudentLibraryPageState extends State<StudentLibraryPage> {
               controller: _pageController,
               itemCount: bookDocs.length,
               itemBuilder: (context, index) {
-                var data = bookDocs[index].data() as Map<String, dynamic>;
-                String? imageUrl = data['imageUrl'];
+                var data = bookDocs[index];
+                String? imageUrl = data['image_url'] ?? data['imageUrl'];
 
                 return Stack(
                   fit: StackFit.expand,

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 
 class GlobalNotificationInbox extends StatelessWidget {
@@ -112,11 +112,11 @@ class GlobalNotificationInbox extends StatelessWidget {
   }
 
   Widget _buildInboxList() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('notifications')
-          .where('studentID', whereIn: [studentID, 'all', 'admin'])
-          .snapshots(),
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: Supabase.instance.client
+          .from('notifications')
+          .stream(primaryKey: ['id'])
+          .order('created_at', ascending: false),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const SliverFillRemaining(
@@ -124,19 +124,11 @@ class GlobalNotificationInbox extends StatelessWidget {
           );
         }
 
-        final notifications = List<QueryDocumentSnapshot>.from(
-          snapshot.data?.docs ?? [],
-        );
-        notifications.sort((a, b) {
-          final aTime =
-              (a.data() as Map<String, dynamic>)['createdAt'] as Timestamp?;
-          final bTime =
-              (b.data() as Map<String, dynamic>)['createdAt'] as Timestamp?;
-          if (aTime == null && bTime == null) return 0;
-          if (aTime == null) return 1;
-          if (bTime == null) return -1;
-          return bTime.compareTo(aTime);
-        });
+        final allNotifications = snapshot.data ?? [];
+        final notifications = allNotifications.where((n) {
+          final sid = (n['student_id'] ?? n['studentID'])?.toString();
+          return sid == studentID || sid == 'all' || (isAdmin && sid == 'admin');
+        }).toList();
 
         if (notifications.isEmpty) {
           return SliverFillRemaining(
@@ -168,15 +160,14 @@ class GlobalNotificationInbox extends StatelessWidget {
         return SliverList.builder(
           itemCount: notifications.length,
           itemBuilder: (context, index) {
-            final doc = notifications[index];
-            final data = doc.data() as Map<String, dynamic>;
+            final data = notifications[index];
             return _NotificationTile(
-              docId: doc.id,
+              docId: data['id']?.toString() ?? '',
               title: (data['title'] ?? 'Notice').toString(),
               message: (data['message'] ?? 'No detail provided.').toString(),
               priority: (data['priority'] ?? 'normal').toString(),
-              isRead: data['isRead'] == true,
-              createdAt: data['createdAt'],
+              isRead: data['is_read'] == true || data['isRead'] == true,
+              createdAt: data['created_at'] ?? data['createdAt'],
               committee: data['committee']?.toString(),
             );
           },
@@ -619,20 +610,20 @@ class _AdminNotificationPanelState extends State<_AdminNotificationPanel> {
   ) async {
     setState(() => _isSending = true);
     try {
-      final firestore = FirebaseFirestore.instance;
+      final client = Supabase.instance.client;
       final String? committeeName = _audience == 'committee'
           ? selected.name
           : null;
 
-      await firestore.collection('committee_notifications').add({
+      await client.from('committee_notifications').insert({
         'committee': committeeName ?? 'Global',
         'title': title,
         'message': message,
         'priority': _priority,
-        'targetType': _audience,
-        'targetCommittee': committeeName,
-        'senderID': widget.studentID,
-        'timestamp': FieldValue.serverTimestamp(),
+        'target_type': _audience,
+        'target_committee': committeeName,
+        'sender_id': widget.studentID,
+        'timestamp': DateTime.now().toIso8601String(),
       });
 
       final recipients = await _loadRecipients(selected);
@@ -642,15 +633,15 @@ class _AdminNotificationPanelState extends State<_AdminNotificationPanel> {
         'priority': _priority,
         'type': 'global_notice',
         'committee': committeeName ?? 'Global',
-        'targetType': _audience,
-        'isRead': false,
-        'createdAt': FieldValue.serverTimestamp(),
+        'target_type': _audience,
+        'is_read': false,
+        'created_at': DateTime.now().toIso8601String(),
       };
 
       if (recipients.isEmpty) {
-        await firestore.collection('notifications').add({
+        await client.from('notifications').insert({
           ...notificationData,
-          'studentID': _audience == 'admin' ? 'admin' : 'all',
+          'student_id': _audience == 'admin' ? 'admin' : 'all',
         });
       } else {
         await _commitRecipientNotifications(recipients, notificationData);
@@ -682,9 +673,9 @@ class _AdminNotificationPanelState extends State<_AdminNotificationPanel> {
     if (_audience == 'all') return [];
     if (_audience == 'admin') return [];
 
-    final students = await FirebaseFirestore.instance
-        .collection('students')
-        .get();
+    final students = await Supabase.instance.client
+        .from('students')
+        .select();
     final roles = _audience == 'committee'
         ? selected.roleKeywords
         : GlobalNotificationInbox._committees
@@ -692,15 +683,14 @@ class _AdminNotificationPanelState extends State<_AdminNotificationPanel> {
               .toList();
 
     final ids = <String>{};
-    for (final doc in students.docs) {
-      final data = doc.data();
-      final studentID = (data['studentID'] ?? data['cicNo'] ?? '')
+    for (final data in students) {
+      final studentID = (data['student_id'] ?? data['studentID'] ?? data['cic_no'] ?? '')
           .toString()
           .trim();
       if (studentID.isEmpty) continue;
 
       final userRoles = [
-        data['assignedRole']?.toString().toLowerCase() ?? '',
+        data['assigned_role']?.toString().toLowerCase() ?? data['assignedRole']?.toString().toLowerCase() ?? '',
         data['role']?.toString().toLowerCase() ?? '',
         data['designation']?.toString().toLowerCase() ?? '',
       ];
@@ -718,17 +708,14 @@ class _AdminNotificationPanelState extends State<_AdminNotificationPanel> {
     List<String> recipients,
     Map<String, dynamic> notificationData,
   ) async {
-    final firestore = FirebaseFirestore.instance;
+    final client = Supabase.instance.client;
     for (var i = 0; i < recipients.length; i += 450) {
-      final batch = firestore.batch();
       final chunk = recipients.skip(i).take(450);
-      for (final studentID in chunk) {
-        batch.set(firestore.collection('notifications').doc(), {
-          ...notificationData,
-          'studentID': studentID,
-        });
-      }
-      await batch.commit();
+      final rows = chunk.map((studentID) => {
+        ...notificationData,
+        'student_id': studentID,
+      }).toList();
+      await client.from('notifications').insert(rows);
     }
   }
 
@@ -779,30 +766,17 @@ class _AdminNotificationPanelState extends State<_AdminNotificationPanel> {
               ),
             ),
             Expanded(
-              child: StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('committee_notifications')
-                    .where('committee', isEqualTo: committee.name)
-                    .snapshots(),
+              child: StreamBuilder<List<Map<String, dynamic>>>(
+                stream: Supabase.instance.client
+                    .from('committee_notifications')
+                    .stream(primaryKey: ['id'])
+                    .eq('committee', committee.name)
+                    .order('created_at', ascending: false),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator());
                   }
-                  final docs = List<QueryDocumentSnapshot>.from(
-                    snapshot.data?.docs ?? [],
-                  );
-                  docs.sort((a, b) {
-                    final aTs =
-                        (a.data() as Map<String, dynamic>)['timestamp']
-                            as Timestamp?;
-                    final bTs =
-                        (b.data() as Map<String, dynamic>)['timestamp']
-                            as Timestamp?;
-                    if (aTs == null && bTs == null) return 0;
-                    if (aTs == null) return 1;
-                    if (bTs == null) return -1;
-                    return bTs.compareTo(aTs);
-                  });
+                  final docs = snapshot.data ?? [];
 
                   if (docs.isEmpty) {
                     return const Center(
@@ -814,12 +788,12 @@ class _AdminNotificationPanelState extends State<_AdminNotificationPanel> {
                     padding: const EdgeInsets.fromLTRB(18, 0, 18, 22),
                     itemCount: docs.length,
                     itemBuilder: (context, index) {
-                      final data = docs[index].data() as Map<String, dynamic>;
+                      final data = docs[index];
                       return _HistoryTile(
                         title: (data['title'] ?? 'Notice').toString(),
                         message: (data['message'] ?? '').toString(),
                         priority: (data['priority'] ?? 'normal').toString(),
-                        timestamp: data['timestamp'],
+                        timestamp: data['timestamp'] ?? data['created_at'],
                       );
                     },
                   );
@@ -855,20 +829,22 @@ class _NotificationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _priorityColor(priority, isRead);
-    final timeString = createdAt is Timestamp
-        ? DateFormat(
-            'MMM dd, hh:mm a',
-          ).format((createdAt as Timestamp).toDate())
-        : '';
+    String timeString = '';
+    if (createdAt != null) {
+      final dt = DateTime.tryParse(createdAt.toString());
+      if (dt != null) {
+        timeString = DateFormat('MMM dd, hh:mm a').format(dt);
+      }
+    }
 
     return Dismissible(
       key: Key(docId),
       direction: DismissDirection.horizontal,
       onDismissed: (_) async {
-        await FirebaseFirestore.instance
-            .collection('notifications')
-            .doc(docId)
-            .delete();
+        await Supabase.instance.client
+            .from('notifications')
+            .delete()
+            .eq('id', docId);
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -951,11 +927,11 @@ class _NotificationTile extends StatelessWidget {
             ),
           ),
           onTap: () {
-            if (!isRead) {
-              FirebaseFirestore.instance
-                  .collection('notifications')
-                  .doc(docId)
-                  .update({'isRead': true});
+            if (!isRead && docId.isNotEmpty) {
+              Supabase.instance.client
+                  .from('notifications')
+                  .update({'is_read': true})
+                  .eq('id', docId);
             }
           },
         ),
@@ -1016,11 +992,13 @@ class _HistoryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _NotificationTile._priorityColor(priority, false);
-    final time = timestamp is Timestamp
-        ? DateFormat(
-            'MMM dd, hh:mm a',
-          ).format((timestamp as Timestamp).toDate())
-        : 'Just now';
+    String time = 'Just now';
+    if (timestamp != null) {
+      final dt = DateTime.tryParse(timestamp.toString());
+      if (dt != null) {
+        time = DateFormat('MMM dd, hh:mm a').format(dt);
+      }
+    }
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),

@@ -29,12 +29,19 @@ class PurchaseRequestCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final String status = data['status'] ?? 'pending';
     final Color statusColor = FinanceTheme.getStatusColor(status);
-    final String committee = data['committeeName'] ?? 'General';
+    final String committee =
+        data['committee_name'] ?? data['committee'] ?? data['committeeName'] ?? 'General';
     final Color committeeColor = _getCommitteeColor(committee);
 
     String dateStr = "N/A";
-    if (data['submittedAt'] != null) {
-      dateStr = DateFormat('dd MMM, hh:mm a').format(data['submittedAt'].toDate());
+    final rawDate = data['created_at'] ?? data['submitted_at'] ?? data['submittedAt'];
+    if (rawDate != null) {
+      final dt = rawDate is DateTime
+          ? rawDate
+          : DateTime.tryParse(rawDate.toString());
+      if (dt != null) {
+        dateStr = DateFormat('dd MMM, hh:mm a').format(dt);
+      }
     }
 
     return Container(
@@ -59,16 +66,16 @@ class PurchaseRequestCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Text(data['itemName'] ?? 'Untitled Item', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: FinanceTheme.textMain)),
+          Text(data['item_name'] ?? data['itemName'] ?? 'Untitled Item', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: FinanceTheme.textMain)),
           if (data['remarks'] != null && data['remarks'].toString().isNotEmpty) ...[
             const SizedBox(height: 4),
-            Text(data['remarks'], style: const TextStyle(color: FinanceTheme.textSub, fontSize: 13)),
+            Text(data['remarks'].toString(), style: const TextStyle(color: FinanceTheme.textSub, fontSize: 13)),
           ],
           const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text("₹ ${data['estimatedPrice'] ?? 0}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: FinanceTheme.textMain)),
+              Text("₹ ${data['estimated_price'] ?? data['estimatedPrice'] ?? 0}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: FinanceTheme.textMain)),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)),

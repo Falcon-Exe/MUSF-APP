@@ -1,8 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 abstract class LiteraryRepository {
-  Stream<QuerySnapshot<Map<String, dynamic>>> getRequestsStream();
-  Stream<QuerySnapshot> getStudentRequestsStream(String studentUid);
+  Stream<List<Map<String, dynamic>>> getRequestsStream();
+  Stream<List<Map<String, dynamic>>> getStudentRequestsStream(String studentUid);
 
   Future<void> submitRequest({
     required String title,

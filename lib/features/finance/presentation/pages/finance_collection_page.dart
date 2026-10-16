@@ -3,7 +3,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -251,15 +250,16 @@ class _FinanceCollectionPageState extends State<FinanceCollectionPage> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<DocumentSnapshot>(
+    return StreamBuilder<Map<String, dynamic>>(
       stream: _controller.unionSettingsStream,
       builder: (context, settingsSnapshot) {
         int unionDueAmount = 1000;
-        if (settingsSnapshot.hasData && settingsSnapshot.data!.exists) {
-          unionDueAmount =
-              (settingsSnapshot.data!.data()
-                  as Map<String, dynamic>)['unionDueAmount'] ??
-              1000;
+        if (settingsSnapshot.hasData && settingsSnapshot.data != null) {
+          unionDueAmount = _asInt(
+            settingsSnapshot.data!['unionDueAmount'] ??
+                settingsSnapshot.data!['union_due_amount'] ??
+                1000,
+          );
         }
 
         final totals = _calculateLoadedTotals(_students, unionDueAmount);
@@ -1417,12 +1417,12 @@ class _FinanceCollectionPageState extends State<FinanceCollectionPage> {
               ),
             ),
             Expanded(
-              child: StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection(collection)
-                    .orderBy('date', descending: true)
-                    .limit(100)
-                    .snapshots(),
+              child: StreamBuilder<List<Map<String, dynamic>>>(
+                stream: Supabase.instance.client
+                    .from(collection)
+                    .stream(primaryKey: ['id'])
+                    .order('date', ascending: false)
+                    .limit(100),
                 builder: (context, snapshot) {
                   if (snapshot.hasError) {
                     return Center(
@@ -1435,7 +1435,7 @@ class _FinanceCollectionPageState extends State<FinanceCollectionPage> {
                       !snapshot.hasData) {
                     return const Center(child: CircularProgressIndicator());
                   }
-                  final docs = snapshot.data?.docs ?? [];
+                  final docs = snapshot.data ?? [];
                   if (docs.isEmpty) {
                     return const Center(
                       child: Text("No payment history found."),
@@ -1446,16 +1446,12 @@ class _FinanceCollectionPageState extends State<FinanceCollectionPage> {
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
                     itemCount: docs.length,
                     itemBuilder: (context, index) {
-                      final data = docs[index].data() as Map<String, dynamic>;
+                      final data = docs[index];
                       final amount = _asInt(data['amount']);
                       final type = (data['type'] ?? 'Payment').toString();
-                      final studentID = (data['studentID'] ?? 'N/A').toString();
-                      final date = data['date'] is Timestamp
-                          ? (data['date'] as Timestamp)
-                                .toDate()
-                                .toString()
-                                .split('.')
-                                .first
+                      final studentID = (data['student_id'] ?? data['studentID'] ?? 'N/A').toString();
+                      final date = data['date'] != null
+                          ? data['date'].toString().split('.').first.replaceFirst('T', ' ')
                           : 'Pending sync';
 
                       return ListTile(

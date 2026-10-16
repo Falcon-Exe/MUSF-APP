@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../logic/finance_controller.dart';
@@ -330,15 +329,14 @@ class _FinanceStudentsListPageState extends State<FinanceStudentsListPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      body: StreamBuilder<DocumentSnapshot>(
+      body: StreamBuilder<Map<String, dynamic>>(
         stream: _controller.unionSettingsStream,
         builder: (context, settingsSnapshot) {
           int activeDueAmount = widget.unionDueAmount;
-          if (settingsSnapshot.hasData && settingsSnapshot.data!.exists) {
-            final settingsData =
-                settingsSnapshot.data!.data() as Map<String, dynamic>;
+          if (settingsSnapshot.hasData) {
+            final settingsData = settingsSnapshot.data!;
             activeDueAmount =
-                settingsData['unionDueAmount'] ?? widget.unionDueAmount;
+                (settingsData['unionDueAmount'] as num?)?.toInt() ?? widget.unionDueAmount;
           }
 
           final students = _processStudents(_students, activeDueAmount);

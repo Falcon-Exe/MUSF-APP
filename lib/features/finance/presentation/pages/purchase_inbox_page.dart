@@ -48,11 +48,11 @@ class _PurchaseInboxPageState extends State<PurchaseInboxPage> with SingleTicker
   }
 
   Widget _buildRequestList(String status) {
-    return StreamBuilder(
+    return StreamBuilder<List<Map<String, dynamic>>>(
       stream: _controller.getPurchaseRequests(status),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-        final docs = snapshot.data?.docs ?? [];
+        final docs = snapshot.data ?? [];
 
         if (docs.isEmpty) return const Center(child: Text("No requests found", style: TextStyle(color: FinanceTheme.textSub)));
 
@@ -60,10 +60,11 @@ class _PurchaseInboxPageState extends State<PurchaseInboxPage> with SingleTicker
           padding: const EdgeInsets.only(top: 16, bottom: 20),
           itemCount: docs.length,
           itemBuilder: (context, index) {
-            final doc = docs[index];
+            final data = docs[index];
+            final docId = (data['id'] ?? '').toString();
             return PurchaseRequestCard(
-              data: doc.data() as Map<String, dynamic>,
-              docId: doc.id,
+              data: data,
+              docId: docId,
               onApprove: (id) => _controller.approvePurchase(context: context, docId: id),
               onReject: (id) => _controller.rejectPurchase(context: context, docId: id, reason: "Rejected by Treasurer"),
               onDelete: (id) => _controller.deletePurchase(context: context, docId: id),

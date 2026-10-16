@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../data/repositories/library_repository.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 class LibraryController extends ChangeNotifier {
   final LibraryRepository _repository;
@@ -23,9 +22,12 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Stream<QuerySnapshot> getStudentsStream() => _repository.getStudentsStream();
-  Stream<QuerySnapshot> getHistoryStream(String studentID) => _repository.getHistoryStream(studentID);
-  Stream<QuerySnapshot> getBooksCatalogStream() => _repository.getBooksCatalogStream();
+  Stream<List<Map<String, dynamic>>> getStudentsStream() =>
+      _repository.getStudentsStream();
+  Stream<List<Map<String, dynamic>>> getHistoryStream(String studentID) =>
+      _repository.getHistoryStream(studentID);
+  Stream<List<Map<String, dynamic>>> getBooksCatalogStream() =>
+      _repository.getBooksCatalogStream();
 
   Future<void> updateFine({
     required String docId,
@@ -62,7 +64,11 @@ class LibraryController extends ChangeNotifier {
     required String author,
     String? imageUrl,
   }) {
-    return _repository.addBook(title: title, author: author, imageUrl: imageUrl);
+    return _repository.addBook(
+      title: title,
+      author: author,
+      imageUrl: imageUrl,
+    );
   }
 
   Future<void> deleteBook(String docId) => _repository.deleteBook(docId);

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 
 class StudentNotificationHistoryPage extends StatelessWidget {
@@ -20,11 +20,11 @@ class StudentNotificationHistoryPage extends StatelessWidget {
         centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('notifications')
-            .where('studentID', isEqualTo: studentID)
-            .snapshots(),
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: Supabase.instance.client
+            .from('notifications')
+            .stream(primaryKey: ['id'])
+            .order('created_at', ascending: false),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
@@ -39,7 +39,14 @@ class StudentNotificationHistoryPage extends StatelessWidget {
               ),
             );
           }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+
+          final allDocs = snapshot.data ?? [];
+          final docs = allDocs.where((data) {
+            final sid = (data['student_id'] ?? data['studentID'])?.toString();
+            return sid == studentID || sid == 'all';
+          }).toList();
+
+          if (docs.isEmpty) {
             return const Center(
               child: Text(
                 "You have no new notifications.",
@@ -48,117 +55,85 @@ class StudentNotificationHistoryPage extends StatelessWidget {
             );
           }
 
-          final docs = snapshot.data!.docs.toList();
-
-          // Sort locally in memory to avoid needing a composite index in Firestore
-          docs.sort((a, b) {
-            final dataA = a.data() as Map<String, dynamic>;
-            final dataB = b.data() as Map<String, dynamic>;
-            Timestamp? tA = dataA['timestamp'] as Timestamp?;
-            Timestamp? tB = dataB['timestamp'] as Timestamp?;
-
-            if (tA == null && tB == null) return 0;
-            if (tA == null) return 1;
-            if (tB == null) return -1;
-            return tB.compareTo(tA); // Descending order
-          });
-
           return ListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: docs.length,
             itemBuilder: (context, index) {
-              final doc = docs[index];
-              final data = doc.data() as Map<String, dynamic>;
+              final data = docs[index];
+              final title = (data['title'] ?? 'Notice').toString();
+              final message = (data['message'] ?? data['body'] ?? '').toString();
+              final priority = (data['priority'] ?? 'normal').toString();
+              final bool isRead = data['is_read'] ?? data['isRead'] ?? false;
 
-              final title = data['title'] ?? 'Notification';
-              final message = data['message'] ?? '';
-              final Timestamp? ts = data['timestamp'];
-              final isRead = data['isRead'] ?? true;
-
-              String timeStr = 'Just now';
-              if (ts != null) {
-                timeStr = DateFormat(
-                  'dd MMM yyyy, hh:mm a',
-                ).format(ts.toDate());
+              DateTime? dt;
+              final rawDate = data['created_at'] ?? data['timestamp'];
+              if (rawDate != null) {
+                dt = DateTime.tryParse(rawDate.toString());
               }
+              final timeStr = dt != null
+                  ? DateFormat('dd MMM yyyy, hh:mm a').format(dt)
+                  : 'Just now';
 
-              return Card(
-                elevation: 2,
+              final isUrgent = priority == 'urgent' || priority == 'high' || priority == 'important';
+
+              return Container(
                 margin: const EdgeInsets.only(bottom: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: isRead
-                              ? Colors.grey.withValues(alpha: 0.1)
-                              : const Color(0xFFF59E0B).withValues(alpha: 0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          isRead
-                              ? Icons.notifications_none
-                              : Icons.notifications_active,
-                          color: isRead ? Colors.grey : const Color(0xFFF59E0B),
-                          size: 24,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    title,
-                                    style: TextStyle(
-                                      fontWeight: isRead
-                                          ? FontWeight.w600
-                                          : FontWeight.w900,
-                                      fontSize: 15,
-                                      color: isRead
-                                          ? Colors.black87
-                                          : Colors.black,
-                                    ),
-                                  ),
-                                ),
-                                Text(
-                                  timeStr,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: isRead
-                                        ? Colors.grey
-                                        : const Color(0xFFF59E0B),
-                                    fontWeight: isRead
-                                        ? FontWeight.normal
-                                        : FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              message,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: isRead ? Colors.black54 : Colors.black87,
-                                height: 1.4,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isRead ? Colors.white : const Color(0xFFFEF3C7),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: isUrgent
+                        ? Colors.amber.shade400
+                        : Colors.grey.shade200,
                   ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.03),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: TextStyle(
+                              fontWeight: isRead
+                                  ? FontWeight.w600
+                                  : FontWeight.bold,
+                              fontSize: 15,
+                              color: isUrgent
+                                  ? const Color(0xFFB45309)
+                                  : Colors.black87,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          timeStr,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      message,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Colors.black87,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
                 ),
               );
             },

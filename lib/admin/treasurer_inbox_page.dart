@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 
 class TreasurerInboxPage extends StatefulWidget {
@@ -25,26 +25,29 @@ class _TreasurerInboxPageState extends State<TreasurerInboxPage>
     super.dispose();
   }
 
-  Stream<QuerySnapshot> _streamFor(String status) {
+  Stream<List<Map<String, dynamic>>> _streamFor(String status) {
+    final client = Supabase.instance.client;
     if (status == 'all') {
-      return FirebaseFirestore.instance
-          .collection('purchase_requests')
-          .snapshots();
+      return client
+          .from('purchase_requests')
+          .stream(primaryKey: ['id'])
+          .order('created_at', ascending: false);
     }
-    return FirebaseFirestore.instance
-        .collection('purchase_requests')
-        .where('status', isEqualTo: status)
-        .snapshots();
+    return client
+        .from('purchase_requests')
+        .stream(primaryKey: ['id'])
+        .eq('status', status)
+        .order('created_at', ascending: false);
   }
 
   Future<void> _markCompleted(String docId) async {
-    await FirebaseFirestore.instance
-        .collection('purchase_requests')
-        .doc(docId)
+    await Supabase.instance.client
+        .from('purchase_requests')
         .update({
-      'status': 'completed',
-      'completedAt': FieldValue.serverTimestamp(),
-    });
+          'status': 'completed',
+          'completed_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', docId);
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -58,27 +61,32 @@ class _TreasurerInboxPageState extends State<TreasurerInboxPage>
   }
 
   Future<void> _approve(String docId) async {
-    final doc = await FirebaseFirestore.instance.collection('purchase_requests').doc(docId).get();
-    final data = doc.data() as Map<String, dynamic>;
+    final client = Supabase.instance.client;
+    final doc = await client
+        .from('purchase_requests')
+        .select()
+        .eq('id', docId)
+        .maybeSingle();
+    final data = doc ?? {};
 
-    await FirebaseFirestore.instance
-        .collection('purchase_requests')
-        .doc(docId)
+    await client
+        .from('purchase_requests')
         .update({
           'status': 'approved',
-          'reviewedAt': FieldValue.serverTimestamp(),
-          'rejectionReason': null,
-        });
+          'reviewed_at': DateTime.now().toUtc().toIso8601String(),
+          'rejection_reason': null,
+        })
+        .eq('id', docId);
 
     // Notify requester (committee)
-    await FirebaseFirestore.instance.collection('notifications').add({
-      'studentID': 'all', // Generic for now, ideally specific to the committee lead
+    final reqTitle = data['request_title'] ?? data['item_name'] ?? data['requestTitle'] ?? 'Request';
+    final reqAmt = data['amount'] ?? data['estimated_cost'] ?? data['estimatedCost'] ?? 0;
+    await client.from('notifications').insert({
+      'student_id': 'all',
       'title': 'Treasurer Request Approved',
-      'message': 'Your request for ${data['requestTitle'] ?? data['itemName']} (₹${data['amount'] ?? data['estimatedCost']}) was approved.',
-      'createdAt': FieldValue.serverTimestamp(),
-      'isRead': false,
+      'message': 'Your request for $reqTitle (₹$reqAmt) was approved.',
       'type': 'purchase_update',
-      'referenceId': docId,
+      'reference_id': docId,
     });
 
     if (mounted) {
@@ -96,9 +104,14 @@ class _TreasurerInboxPageState extends State<TreasurerInboxPage>
   }
 
   Future<void> _reject(String docId) async {
-    final doc = await FirebaseFirestore.instance.collection('purchase_requests').doc(docId).get();
+    final client = Supabase.instance.client;
+    final doc = await client
+        .from('purchase_requests')
+        .select()
+        .eq('id', docId)
+        .maybeSingle();
     if (!mounted) return;
-    final data = doc.data() as Map<String, dynamic>;
+    final data = doc ?? {};
 
     final reasonController = TextEditingController();
     final confirmed = await showDialog<bool>(
@@ -147,24 +160,22 @@ class _TreasurerInboxPageState extends State<TreasurerInboxPage>
 
     if (confirmed == true) {
       final reason = reasonController.text.trim();
-      await FirebaseFirestore.instance
-          .collection('purchase_requests')
-          .doc(docId)
+      await client
+          .from('purchase_requests')
           .update({
             'status': 'rejected',
-            'reviewedAt': FieldValue.serverTimestamp(),
-            'rejectionReason': reason,
-          });
+            'reviewed_at': DateTime.now().toUtc().toIso8601String(),
+            'rejection_reason': reason,
+          })
+          .eq('id', docId);
 
-      // Notify requester
-      await FirebaseFirestore.instance.collection('notifications').add({
-        'studentID': 'all',
+      final reqTitle = data['request_title'] ?? data['item_name'] ?? data['requestTitle'] ?? 'Request';
+      await client.from('notifications').insert({
+        'student_id': 'all',
         'title': 'Treasurer Request Rejected',
-        'message': 'Your request for ${data['requestTitle'] ?? data['itemName']} was rejected. Reason: ${reason.isEmpty ? "Not specified" : reason}',
-        'createdAt': FieldValue.serverTimestamp(),
-        'isRead': false,
+        'message': 'Your request for $reqTitle was rejected. Reason: ${reason.isEmpty ? "Not specified" : reason}',
         'type': 'purchase_update',
-        'referenceId': docId,
+        'reference_id': docId,
       });
 
       if (mounted) {
@@ -214,10 +225,10 @@ class _TreasurerInboxPageState extends State<TreasurerInboxPage>
     );
 
     if (confirmed == true) {
-      await FirebaseFirestore.instance
-          .collection('purchase_requests')
-          .doc(docId)
-          .delete();
+      await Supabase.instance.client
+          .from('purchase_requests')
+          .delete()
+          .eq('id', docId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -250,21 +261,27 @@ class _TreasurerInboxPageState extends State<TreasurerInboxPage>
     return colors[name] ?? const Color(0xFF08233E);
   }
 
+  DateTime _asDateTime(dynamic val) {
+    if (val is DateTime) return val;
+    if (val is String) return DateTime.tryParse(val) ?? DateTime.fromMillisecondsSinceEpoch(0);
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
   Widget _buildList(String statusFilter) {
-    return StreamBuilder<QuerySnapshot>(
+    return StreamBuilder<List<Map<String, dynamic>>>(
       stream: _streamFor(statusFilter),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final allDocs = snapshot.data?.docs ?? [];
+        final allDocs = snapshot.data ?? [];
         
-        // Sort in memory to avoid Firestore index requirements
-        final docs = List.from(allDocs);
+        // Sort in memory
+        final docs = List<Map<String, dynamic>>.from(allDocs);
         docs.sort((a, b) {
-          final aTime = (a.data() as Map)['createdAt'] ?? (a.data() as Map)['submittedAt'] ?? Timestamp.now();
-          final bTime = (b.data() as Map)['createdAt'] ?? (b.data() as Map)['submittedAt'] ?? Timestamp.now();
+          final aTime = _asDateTime(a['created_at'] ?? a['createdAt'] ?? a['submitted_at']);
+          final bTime = _asDateTime(b['created_at'] ?? b['createdAt'] ?? b['submitted_at']);
           return bTime.compareTo(aTime);
         });
 
@@ -295,21 +312,19 @@ class _TreasurerInboxPageState extends State<TreasurerInboxPage>
           itemCount: docs.length,
           separatorBuilder: (context, index) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
-            final doc = docs[index];
-            final data = doc.data() as Map<String, dynamic>;
+            final data = docs[index];
+            final docId = data['id']?.toString() ?? '';
             final status = data['status'] ?? 'pending';
-            final committee = data['committeeName'] ?? '';
-            final cost = data['estimatedCost'] ?? 0;
-            final submittedAt = data['submittedAt'] as Timestamp?;
-            final dateStr = submittedAt != null
-                ? DateFormat(
-                    'dd MMM yyyy, hh:mm a',
-                  ).format(submittedAt.toDate())
+            final committee = data['committee_name'] ?? data['committeeName'] ?? '';
+            final cost = data['amount'] ?? data['estimated_cost'] ?? data['estimatedCost'] ?? 0;
+            final submittedAtRaw = data['created_at'] ?? data['createdAt'] ?? data['submitted_at'];
+            final dateStr = submittedAtRaw != null
+                ? DateFormat('dd MMM yyyy, hh:mm a').format(_asDateTime(submittedAtRaw).toLocal())
                 : 'Just now';
             final color = _committeeColor(committee);
 
             return InkWell(
-              onLongPress: () => _deleteRequest(doc.id),
+              onLongPress: () => _deleteRequest(docId),
               child: Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -428,7 +443,7 @@ class _TreasurerInboxPageState extends State<TreasurerInboxPage>
                               if (status == 'pending') ...[
                                 // Reject
                                 OutlinedButton.icon(
-                                  onPressed: () => _reject(doc.id),
+                                  onPressed: () => _reject(docId),
                                   icon: const Icon(
                                     Icons.close_rounded,
                                     size: 15,
@@ -455,7 +470,7 @@ class _TreasurerInboxPageState extends State<TreasurerInboxPage>
                                 const SizedBox(width: 8),
                                 // Approve
                                 ElevatedButton.icon(
-                                  onPressed: () => _approve(doc.id),
+                                  onPressed: () => _approve(docId),
                                   icon: const Icon(
                                     Icons.check_rounded,
                                     size: 15,
@@ -483,7 +498,7 @@ class _TreasurerInboxPageState extends State<TreasurerInboxPage>
                                 ),
                               ] else if (status == 'approved') ...[
                                 ElevatedButton.icon(
-                                  onPressed: () => _markCompleted(doc.id),
+                                  onPressed: () => _markCompleted(docId),
                                   icon: const Icon(
                                     Icons.check_circle_outline_rounded,
                                     size: 15,

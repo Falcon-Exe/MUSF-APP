@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
 
@@ -188,18 +188,18 @@ class _SamajyamEntryFormState extends State<_SamajyamEntryForm> {
   ) async {
     if (query.isEmpty) return [];
 
-    // Search the 'students' collection instead of 'users'
-    final snapshot = await FirebaseFirestore.instance
-        .collection('students')
-        .get();
+    final rows = await Supabase.instance.client
+        .from('students')
+        .select('full_name, student_id');
 
-    var results = snapshot.docs.map((d) => d.data()).where((data) {
-      final name = (data['fullName'] ?? data['name'] ?? '')
-          .toString()
-          .toLowerCase();
-      final id = (data['studentID'] ?? '').toString().toLowerCase();
-      final q = query.toLowerCase();
+    final q = query.toLowerCase();
+    var results = rows.where((data) {
+      final name = (data['full_name'] ?? '').toString().toLowerCase();
+      final id = (data['student_id'] ?? '').toString().toLowerCase();
       return name.contains(q) || id.contains(q);
+    }).map((r) => {
+      'fullName': r['full_name'],
+      'studentID': r['student_id'],
     }).toList();
 
     return results;
@@ -221,29 +221,23 @@ class _SamajyamEntryFormState extends State<_SamajyamEntryForm> {
           ? "TBD"
           : _venueController.text.trim();
 
-      WriteBatch batch = FirebaseFirestore.instance.batch();
+      final List<Map<String, dynamic>> toInsert = [];
 
       void processEvents(List<Map<String, dynamic>> events, String category) {
         for (var ev in events) {
           String performerName = ev['controller'].text.trim();
           if (performerName.isNotEmpty) {
-            var docRef = FirebaseFirestore.instance
-                .collection('samajyam_performances')
-                .doc();
-
-            // Determine the topic. If it's a custom event, use the event topic. Otherwise, use the category (ULA/ALIYA).
             String topicName = ev['isCustom'] == true ? ev['topic'] : category;
-
-            batch.set(docRef, {
-              'date': Timestamp.fromDate(finalDateTime), // Merged Date & Time
-              'category': category, // ULA or ALIYA
+            toInsert.add({
+              'date': finalDateTime.toUtc().toIso8601String(),
+              'category': category,
               'team': widget.teamName,
               'venue': venue,
-              'eventName': ev['topic'], // e.g. QUIRA'ATH
-              'topic': topicName, // Dynamic tag!
+              'event_name': ev['topic'],
+              'topic': topicName,
               'performer': performerName,
-              'performerId': ev['studentId'], // the actual DB ID
-              'timestamp': FieldValue.serverTimestamp(),
+              'performer_id': ev['studentId'],
+              'timestamp': DateTime.now().toUtc().toIso8601String(),
             });
           }
         }
@@ -252,7 +246,11 @@ class _SamajyamEntryFormState extends State<_SamajyamEntryForm> {
       processEvents(ulaEvents, "ULA");
       processEvents(aliyaEvents, "ALIYA");
 
-      await batch.commit();
+      if (toInsert.isNotEmpty) {
+        await Supabase.instance.client
+            .from('samajyam_performances')
+            .insert(toInsert);
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -557,12 +555,18 @@ class _SamajyamHistoryList extends StatelessWidget {
   final String teamName;
   const _SamajyamHistoryList({required this.teamName});
 
+  DateTime _asDateTime(dynamic val) {
+    if (val is DateTime) return val;
+    if (val is String) return DateTime.tryParse(val) ?? DateTime.now();
+    return DateTime.now();
+  }
+
   Future<void> _deleteEntry(BuildContext context, String docId) async {
     final messenger = ScaffoldMessenger.of(context);
-    await FirebaseFirestore.instance
-        .collection('samajyam_performances')
-        .doc(docId)
-        .delete();
+    await Supabase.instance.client
+        .from('samajyam_performances')
+        .delete()
+        .eq('id', docId);
     messenger.showSnackBar(
       const SnackBar(
         content: Text("Entry Deleted"),
@@ -577,39 +581,30 @@ class _SamajyamHistoryList extends StatelessWidget {
     List<Map<String, dynamic>> events,
   ) async {
     final messenger = ScaffoldMessenger.of(context);
-
-    int notificationCount = 0;
-    WriteBatch batch = FirebaseFirestore.instance.batch();
+    final List<Map<String, dynamic>> notifs = [];
 
     for (var ev in events) {
-      String studentId = ev['performerId'] ?? '';
-      String eventName = ev['eventName'] ?? 'an event';
-      String topic = ev['topic'] ?? 'Literary Summit';
-      String date = dateString; // e.g. 11 Dec 2025
+      String studentId = (ev['performer_id'] ?? ev['performerId'] ?? '').toString();
+      String eventName = (ev['event_name'] ?? ev['eventName'] ?? 'an event').toString();
+      String topic = (ev['topic'] ?? 'Literary Summit').toString();
+      String date = dateString;
 
       if (studentId.isNotEmpty) {
-        var notifRef = FirebaseFirestore.instance
-            .collection('notifications')
-            .doc();
-        batch.set(notifRef, {
-          'studentID': studentId,
+        notifs.add({
+          'student_id': studentId,
           'title': 'Samajyam Notice ($topic)',
           'message':
               'You have been assigned to $eventName ($topic) on $date. Please be prepared!',
-          'createdAt':
-              FieldValue.serverTimestamp(), // Fixed field name to match Inbox
-          'isRead': false,
           'type': 'samajyam_summit',
         });
-        notificationCount++;
       }
     }
 
-    if (notificationCount > 0) {
-      await batch.commit();
+    if (notifs.isNotEmpty) {
+      await Supabase.instance.client.from('notifications').insert(notifs);
       messenger.showSnackBar(
         SnackBar(
-          content: Text("Successfully sent $notificationCount notifications!"),
+          content: Text("Successfully sent ${notifs.length} notifications!"),
           backgroundColor: const Color(0xFF2E7D32),
         ),
       );
@@ -625,11 +620,11 @@ class _SamajyamHistoryList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('samajyam_performances')
-          .where('team', isEqualTo: teamName.trim())
-          .snapshots(),
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: Supabase.instance.client
+          .from('samajyam_performances')
+          .stream(primaryKey: ['id'])
+          .eq('team', teamName.trim()),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(
@@ -646,7 +641,9 @@ class _SamajyamHistoryList extends StatelessWidget {
           );
         }
 
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+        final docs = snapshot.data ?? [];
+
+        if (docs.isEmpty) {
           return Center(
             child: Text(
               "No performances recorded for $teamName yet.",
@@ -655,16 +652,12 @@ class _SamajyamHistoryList extends StatelessWidget {
           );
         }
 
-        final docs = snapshot.data!.docs.toList();
-
-        // Group the documents by formatted Date String (combines time if wanted, but dateString is safer for daily groups)
-        Map<String, List<QueryDocumentSnapshot>> groupedByDate = {};
-        for (var doc in docs) {
-          var data = doc.data() as Map<String, dynamic>;
-          Timestamp t = data['date'] ?? Timestamp.now();
-          String formattedDate = DateFormat('dd MMM yyyy').format(t.toDate());
-
-          groupedByDate.putIfAbsent(formattedDate, () => []).add(doc);
+        // Group the documents by formatted Date String
+        Map<String, List<Map<String, dynamic>>> groupedByDate = {};
+        for (var data in docs) {
+          DateTime dt = _asDateTime(data['date']);
+          String formattedDate = DateFormat('dd MMM yyyy').format(dt.toLocal());
+          groupedByDate.putIfAbsent(formattedDate, () => []).add(data);
         }
 
         List<String> sortedDates = groupedByDate.keys.toList();
@@ -679,26 +672,20 @@ class _SamajyamHistoryList extends StatelessWidget {
           itemCount: sortedDates.length,
           itemBuilder: (context, index) {
             String dateString = sortedDates[index];
-            List<QueryDocumentSnapshot> dateDocs = groupedByDate[dateString]!;
+            List<Map<String, dynamic>> dateDocs = groupedByDate[dateString]!;
 
-            // Extract general Info from the first doc of the day (Time, Venue)
-            var firstDocData = dateDocs.first.data() as Map<String, dynamic>;
-            DateTime dt = (firstDocData['date'] as Timestamp).toDate();
-            String timeString = DateFormat('hh:mm a').format(dt);
-            String venueString = firstDocData['venue'] ?? 'TBD';
+            // Extract general Info from the first doc of the day
+            var firstDocData = dateDocs.first;
+            DateTime dt = _asDateTime(firstDocData['date']);
+            String timeString = DateFormat('hh:mm a').format(dt.toLocal());
+            String venueString = (firstDocData['venue'] ?? 'TBD').toString();
 
             // Split into ULA and ALIYA
-            List<QueryDocumentSnapshot> ulaDocs = dateDocs
-                .where(
-                  (d) =>
-                      (d.data() as Map<String, dynamic>)['category'] == 'ULA',
-                )
+            List<Map<String, dynamic>> ulaDocs = dateDocs
+                .where((d) => d['category'] == 'ULA')
                 .toList();
-            List<QueryDocumentSnapshot> aliyaDocs = dateDocs
-                .where(
-                  (d) =>
-                      (d.data() as Map<String, dynamic>)['category'] == 'ALIYA',
-                )
+            List<Map<String, dynamic>> aliyaDocs = dateDocs
+                .where((d) => d['category'] == 'ALIYA')
                 .toList();
 
             return Card(
@@ -712,7 +699,6 @@ class _SamajyamHistoryList extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // --- HEADER: Date/Time/Venue + Notification Button ---
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -721,9 +707,9 @@ class _SamajyamHistoryList extends StatelessWidget {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
+                              const Text(
                                 "LITERARY SUMMIT",
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.grey,
@@ -783,16 +769,12 @@ class _SamajyamHistoryList extends StatelessWidget {
                             ],
                           ),
                         ),
-                        // 🟢 SEND NOTIFICATION BUTTON
                         OutlinedButton.icon(
                           onPressed: () {
-                            List<Map<String, dynamic>> rawEvents = dateDocs
-                                .map((d) => d.data() as Map<String, dynamic>)
-                                .toList();
                             _sendNotificationForDate(
                               context,
                               dateString,
-                              rawEvents,
+                              dateDocs,
                             );
                           },
                           icon: const Icon(
@@ -858,9 +840,8 @@ class _SamajyamHistoryList extends StatelessWidget {
     );
   }
 
-  Widget _buildEventRow(BuildContext context, QueryDocumentSnapshot doc) {
-    var data = doc.data() as Map<String, dynamic>;
-    String docId = doc.id;
+  Widget _buildEventRow(BuildContext context, Map<String, dynamic> data) {
+    String docId = data['id']?.toString() ?? '';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -878,7 +859,7 @@ class _SamajyamHistoryList extends StatelessWidget {
           Expanded(
             flex: 2,
             child: Text(
-              data['eventName'] ?? "Unknown Event",
+              data['event_name'] ?? data['eventName'] ?? "Unknown Event",
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
             ),
           ),

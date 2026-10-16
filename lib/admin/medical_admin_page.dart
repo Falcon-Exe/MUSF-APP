@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
-// Make sure these imports match your actual file names!
-import 'reel_upload_page.dart';
+import '../features/reels/presentation/pages/reel_upload_page.dart';
 import 'admin_committee_prize.dart';
 import '../features/prd/presentation/pages/prd_request_desk_page.dart';
 import 'event_management_page.dart';

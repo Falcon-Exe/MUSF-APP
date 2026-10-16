@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../data/repositories/literary_repository.dart';
 
 class LiteraryController extends ChangeNotifier {
@@ -15,9 +14,9 @@ class LiteraryController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> getRequestsStream() =>
+  Stream<List<Map<String, dynamic>>> getRequestsStream() =>
       _repository.getRequestsStream();
-  Stream<QuerySnapshot> getStudentRequestsStream(String studentUid) =>
+  Stream<List<Map<String, dynamic>>> getStudentRequestsStream(String studentUid) =>
       _repository.getStudentRequestsStream(studentUid);
 
   Future<void> submitRequest({

@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../../logic/literary_controller.dart';
-import '../../data/repositories/firestore_literary_repository.dart';
+import '../../data/repositories/supabase_literary_repository.dart';
 import '../../data/repositories/supabase_publications_repository.dart';
 import '../widgets/publication_card.dart';
 
@@ -30,7 +29,7 @@ class _StudentLiteraryPageState extends State<StudentLiteraryPage> {
   @override
   void initState() {
     super.initState();
-    _controller = LiteraryController(FirestoreLiteraryRepository());
+    _controller = LiteraryController(SupabaseLiteraryRepository());
     _publicationsRepository = SupabasePublicationsRepository();
     _publicationsFuture = fetchPublications();
   }
@@ -151,13 +150,13 @@ class _StudentLiteraryPageState extends State<StudentLiteraryPage> {
 
   Widget _buildMyPosts() {
     final uid = supabase.Supabase.instance.client.auth.currentUser?.id ?? '';
-    return StreamBuilder<QuerySnapshot>(
+    return StreamBuilder<List<Map<String, dynamic>>>(
       stream: _controller.getStudentRequestsStream(uid),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        final docs = snapshot.data!.docs;
+        final docs = snapshot.data!;
         if (docs.isEmpty) {
           return const Center(
             child: Text("You haven't submitted any posts yet."),
@@ -168,7 +167,7 @@ class _StudentLiteraryPageState extends State<StudentLiteraryPage> {
           padding: const EdgeInsets.all(20),
           itemCount: docs.length,
           itemBuilder: (context, index) {
-            final data = docs[index].data() as Map<String, dynamic>;
+            final data = docs[index];
             final status = data['status'] ?? 'pending';
             return Card(
               margin: const EdgeInsets.only(bottom: 12),
@@ -180,7 +179,7 @@ class _StudentLiteraryPageState extends State<StudentLiteraryPage> {
                 subtitle: Text("Status: ${status.toString().toUpperCase()}"),
                 trailing: IconButton(
                   icon: const Icon(Icons.delete_outline),
-                  onPressed: () => _controller.deleteRequest(docs[index].id),
+                  onPressed: () => _controller.deleteRequest(data['id']?.toString() ?? ''),
                 ),
               ),
             );

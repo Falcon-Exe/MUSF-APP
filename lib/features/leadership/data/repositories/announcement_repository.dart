@@ -1,29 +1,19 @@
 // lib/features/leadership/data/repositories/announcement_repository.dart
 
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AnnouncementRepository {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  static const String _collection = 'executive_announcements';
+  final SupabaseClient _client;
 
-  Stream<QuerySnapshot> getAnnouncementsStream({String? committeeName}) {
-    // If committeeName is provided, we fetch 'all' and specific committee
-    if (committeeName != null) {
-      return _firestore
-          .collection(_collection)
-          .where('isActive', isEqualTo: true)
-          .where('targetType', whereIn: ['all', 'committee'])
-          // Note: Firestore doesn't support complex OR filters easily with whereIn and other filters
-          // So we might need to filter 'targetCommittee' in memory or use multiple streams
-          .orderBy('createdAt', descending: true)
-          .snapshots();
-    }
+  AnnouncementRepository({SupabaseClient? client})
+      : _client = client ?? Supabase.instance.client;
 
-    return _firestore
-        .collection(_collection)
-        .where('isActive', isEqualTo: true)
-        .orderBy('createdAt', descending: true)
-        .snapshots();
+  Stream<List<Map<String, dynamic>>> getAnnouncementsStream({String? committeeName}) {
+    return _client
+        .from('executive_announcements')
+        .stream(primaryKey: ['id'])
+        .eq('is_active', true)
+        .order('created_at', ascending: false);
   }
 
   Future<void> sendAnnouncement({
@@ -36,40 +26,41 @@ class AnnouncementRepository {
     String? targetCommittee,
     required String priority, // 'normal', 'important'
   }) async {
-    await _firestore.collection(_collection).add({
+    await _client.from('executive_announcements').insert({
       'title': title,
       'message': message,
-      'senderId': senderId,
-      'senderName': senderName,
-      'senderRole': senderRole,
-      'targetType': targetType,
-      'targetCommittee': targetCommittee,
+      'sender_id': senderId,
+      'sender_name': senderName,
+      'sender_role': senderRole,
+      'target_type': targetType,
+      'target_committee': targetCommittee,
       'priority': priority,
-      'createdAt': FieldValue.serverTimestamp(),
-      'isActive': true,
+      'is_active': true,
     });
 
-    // Mirror to notifications collection for the bell icon
+    // Mirror to notifications table for the bell icon
     String targetID = 'all';
     if (targetType == 'committee' && targetCommittee != null) {
-      // In a real app, we might send to all members of that committee
-      // For now, let's use a convention like 'committee_Literary'
       targetID = 'committee_$targetCommittee';
     } else if (targetType == 'admins') {
       targetID = 'admin';
     }
 
-    await _firestore.collection('notifications').add({
-      'studentID': targetID,
+    await _client.from('notifications').insert({
+      'student_id': targetID,
       'title': title,
       'message': message,
-      'createdAt': FieldValue.serverTimestamp(),
-      'isRead': false,
+      'is_read': false,
       'type': 'executive_announcement',
+      'priority': priority,
+      'timestamp': DateTime.now().toIso8601String(),
     });
   }
 
   Future<void> deleteAnnouncement(String id) async {
-    await _firestore.collection(_collection).doc(id).update({'isActive': false});
+    await _client
+        .from('executive_announcements')
+        .update({'is_active': false})
+        .eq('id', id);
   }
 }

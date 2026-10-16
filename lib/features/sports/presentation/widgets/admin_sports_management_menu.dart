@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'sports_sheets_import_dialog.dart';
 
 // Temporarily absolute imports mapped to current layout
-import '../../../../admin/reel_upload_page.dart';
+import '../../../../features/reels/presentation/pages/reel_upload_page.dart';
 import '../../../../admin/event_management_page.dart';
 import '../../../../admin/admin_committee_prize.dart';
 import '../../../../features/prd/presentation/pages/prd_request_desk_page.dart';

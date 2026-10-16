@@ -1,9 +1,8 @@
 // lib/features/library/presentation/pages/admin_library_page.dart
 
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../logic/library_controller.dart';
-import '../../data/repositories/firestore_library_repository.dart';
+import '../../data/repositories/supabase_library_repository.dart';
 import '../widgets/fine_breakdown_card.dart';
 import '../widgets/book_catalog_card.dart';
 import '../../../../core/widgets/universal_committee_dashboard.dart';
@@ -32,7 +31,7 @@ class _AdminLibraryPageState extends State<AdminLibraryPage> {
   @override
   void initState() {
     super.initState();
-    _controller = LibraryController(FirestoreLibraryRepository());
+    _controller = LibraryController(SupabaseLibraryRepository());
   }
 
   @override
@@ -50,17 +49,17 @@ class _AdminLibraryPageState extends State<AdminLibraryPage> {
       onBack: () =>
           widget.onBack != null ? widget.onBack!() : Navigator.pop(context),
       searchController: _searchController,
-      onSearchChanged: _controller.setSearchQuery,
+      onSearchChanged: (query) => _controller.setSearchQuery(query),
       extraTabs: [
         CommitteeTabConfig(
-          label: "Fines",
-          icon: Icons.account_balance_wallet_rounded,
+          label: "Student Fines",
+          icon: Icons.money_off_rounded,
           key: 'fines',
           content: _buildFinesTab(),
         ),
         CommitteeTabConfig(
-          label: "Catalog",
-          icon: Icons.menu_book_rounded,
+          label: "Book Catalog",
+          icon: Icons.library_books_rounded,
           key: 'catalog',
           content: _buildCatalogTab(),
         ),
@@ -71,7 +70,7 @@ class _AdminLibraryPageState extends State<AdminLibraryPage> {
   Widget _buildFinesTab() {
     return ListenableBuilder(
       listenable: _controller,
-      builder: (context, _) => StreamBuilder<QuerySnapshot>(
+      builder: (context, _) => StreamBuilder<List<Map<String, dynamic>>>(
         stream: _controller.getStudentsStream(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
@@ -83,7 +82,7 @@ class _AdminLibraryPageState extends State<AdminLibraryPage> {
               !snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
-          final docs = snapshot.data?.docs ?? [];
+          final docs = snapshot.data ?? [];
           final filteredDocs = _filterDocs(docs);
 
           return Column(
@@ -106,12 +105,11 @@ class _AdminLibraryPageState extends State<AdminLibraryPage> {
     );
   }
 
-  List<QueryDocumentSnapshot> _filterDocs(List<QueryDocumentSnapshot> docs) {
-    return docs.where((doc) {
-      final data = doc.data() as Map<String, dynamic>;
+  List<Map<String, dynamic>> _filterDocs(List<Map<String, dynamic>> docs) {
+    return docs.where((data) {
       final String course = data['course']?.toString() ?? '';
-      final String name = data['fullName']?.toString() ?? '';
-      final String id = data['studentID']?.toString() ?? '';
+      final String name = (data['full_name'] ?? data['fullName'])?.toString() ?? '';
+      final String id = (data['student_id'] ?? data['studentID'])?.toString() ?? '';
 
       bool matchesClass =
           _controller.selectedClass == "All" ||
@@ -155,20 +153,22 @@ class _AdminLibraryPageState extends State<AdminLibraryPage> {
     );
   }
 
-  Widget _buildStudentCard(QueryDocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
-    final int fine = int.tryParse(data['libraryFine']?.toString() ?? '0') ?? 0;
+  Widget _buildStudentCard(Map<String, dynamic> data) {
+    final int fine = int.tryParse(data['library_fine']?.toString() ?? data['libraryFine']?.toString() ?? '0') ?? 0;
+    final String docId = data['id']?.toString() ?? '';
+    final String name = (data['full_name'] ?? data['fullName'])?.toString() ?? 'Unknown';
+    final String studentID = (data['student_id'] ?? data['studentID'])?.toString() ?? '-';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
       child: ListTile(
         title: Text(
-          data['fullName'] ?? 'Unknown',
+          name,
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         subtitle: Text(
-          "ID: ${data['studentID'] ?? '-'} • ${data['course'] ?? '-'}",
+          "ID: $studentID • ${data['course'] ?? '-'}",
         ),
         trailing: Text(
           "₹$fine",
@@ -178,7 +178,7 @@ class _AdminLibraryPageState extends State<AdminLibraryPage> {
             fontSize: 16,
           ),
         ),
-        onTap: () => _showStudentActions(doc.id, data),
+        onTap: () => _showStudentActions(docId, data),
       ),
     );
   }
@@ -198,48 +198,55 @@ class _AdminLibraryPageState extends State<AdminLibraryPage> {
             title: const Text("Add Fine"),
             onTap: () {
               Navigator.pop(context);
-              _showInputDialog(docId, data, true);
+              _showFineDialog(docId, data, true);
             },
           ),
           ListTile(
-            leading: const Icon(
-              Icons.remove_circle_outline,
-              color: Colors.green,
-            ),
-            title: const Text("Deduct Fine"),
+            leading: const Icon(Icons.remove_circle_outline, color: Colors.green),
+            title: const Text("Deduct / Pay Fine"),
             onTap: () {
               Navigator.pop(context);
-              _showInputDialog(docId, data, false);
+              _showFineDialog(docId, data, false);
             },
           ),
           ListTile(
-            leading: const Icon(Icons.history_rounded, color: Colors.blue),
-            title: const Text("View History"),
+            leading: const Icon(Icons.history, color: Colors.blue),
+            title: const Text("Payment History"),
             onTap: () {
               Navigator.pop(context);
-              _showHistory(data['studentID']);
+              _showHistory(data['student_id'] ?? data['studentID'] ?? '');
             },
           ),
-          const SizedBox(height: 20),
+          ListTile(
+            leading: const Icon(Icons.message_outlined, color: Colors.orange),
+            title: const Text("Send Notice"),
+            onTap: () {
+              Navigator.pop(context);
+              _showNoticeDialog(data['student_id'] ?? data['studentID'] ?? '');
+            },
+          ),
         ],
       ),
     );
   }
 
-  void _showInputDialog(
-    String docId,
-    Map<String, dynamic> data,
-    bool isAdding,
-  ) {
-    final ctrl = TextEditingController();
+  void _showFineDialog(String docId, Map<String, dynamic> data, bool isAdding) {
+    final amountController = TextEditingController();
+    final int currentFine =
+        int.tryParse(data['library_fine']?.toString() ?? data['libraryFine']?.toString() ?? '0') ?? 0;
+    final String studentID = (data['student_id'] ?? data['studentID'])?.toString() ?? '';
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(isAdding ? "Add Fine" : "Deduct Fine"),
+        title: Text(isAdding ? "Add Library Fine" : "Deduct Library Fine"),
         content: TextField(
-          controller: ctrl,
+          controller: amountController,
           keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: "Amount (₹)"),
+          decoration: const InputDecoration(
+            labelText: "Amount (₹)",
+            border: OutlineInputBorder(),
+          ),
         ),
         actions: [
           TextButton(
@@ -248,20 +255,55 @@ class _AdminLibraryPageState extends State<AdminLibraryPage> {
           ),
           ElevatedButton(
             onPressed: () {
-              final amt = int.tryParse(ctrl.text) ?? 0;
+              final amt = int.tryParse(amountController.text) ?? 0;
               if (amt > 0) {
                 _controller.updateFine(
                   docId: docId,
-                  studentID: data['studentID'],
+                  studentID: studentID,
                   amount: amt,
                   isAdding: isAdding,
-                  currentFine:
-                      int.tryParse(data['libraryFine']?.toString() ?? '0') ?? 0,
+                  currentFine: currentFine,
                 );
               }
               Navigator.pop(context);
             },
-            child: const Text("Save"),
+            child: const Text("Submit"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showNoticeDialog(String studentID) {
+    final msgController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Send Library Notice"),
+        content: TextField(
+          controller: msgController,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: "Message",
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (msgController.text.isNotEmpty) {
+                _controller.sendNotice(
+                  studentID: studentID,
+                  message: msgController.text,
+                );
+              }
+              Navigator.pop(context);
+            },
+            child: const Text("Send"),
           ),
         ],
       ),
@@ -276,7 +318,7 @@ class _AdminLibraryPageState extends State<AdminLibraryPage> {
         content: SizedBox(
           width: double.maxFinite,
           height: 300,
-          child: StreamBuilder<QuerySnapshot>(
+          child: StreamBuilder<List<Map<String, dynamic>>>(
             stream: _controller.getHistoryStream(studentID),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
@@ -288,7 +330,7 @@ class _AdminLibraryPageState extends State<AdminLibraryPage> {
                   !snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
-              final docs = snapshot.data?.docs ?? [];
+              final docs = snapshot.data ?? [];
               if (docs.isEmpty) {
                 return const Center(child: Text("No history found"));
               }
@@ -296,17 +338,18 @@ class _AdminLibraryPageState extends State<AdminLibraryPage> {
               return ListView.builder(
                 itemCount: docs.length,
                 itemBuilder: (context, index) {
-                  final d = docs[index];
-                  final dat = d.data() as Map<String, dynamic>;
+                  final dat = docs[index];
+                  DateTime dt = DateTime.tryParse(dat['date']?.toString() ?? '') ??
+                      DateTime.tryParse(dat['created_at']?.toString() ?? '') ??
+                      DateTime.now();
+
                   return FineBreakdownCard(
                     type: dat['type'] ?? 'Deduction',
                     amount: int.tryParse(dat['amount']?.toString() ?? '0') ?? 0,
-                    date: dat['date'] != null
-                        ? (dat['date'] as Timestamp).toDate()
-                        : DateTime.now(),
+                    date: dt,
                     onDelete: () {
                       _controller.deleteTransaction(
-                        transId: d.id,
+                        transId: dat['id']?.toString() ?? '',
                         studentID: studentID,
                         amount:
                             int.tryParse(dat['amount']?.toString() ?? '0') ?? 0,
@@ -342,7 +385,7 @@ class _AdminLibraryPageState extends State<AdminLibraryPage> {
           ),
         ),
         Expanded(
-          child: StreamBuilder<QuerySnapshot>(
+          child: StreamBuilder<List<Map<String, dynamic>>>(
             stream: _controller.getBooksCatalogStream(),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
@@ -354,7 +397,7 @@ class _AdminLibraryPageState extends State<AdminLibraryPage> {
                   !snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
-              final docs = snapshot.data?.docs ?? [];
+              final docs = snapshot.data ?? [];
               if (docs.isEmpty) {
                 return const Center(child: Text("No books in catalog"));
               }
@@ -363,15 +406,14 @@ class _AdminLibraryPageState extends State<AdminLibraryPage> {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 itemCount: docs.length,
                 itemBuilder: (context, index) {
-                  final data = docs[index].data() as Map<String, dynamic>;
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: BookCatalogCard(
-                      title: data['title'] ?? 'Untitled',
-                      author: data['author'] ?? 'Unknown',
-                      imageUrl: data['imageUrl'],
-                      onDelete: () => _controller.deleteBook(docs[index].id),
-                    ),
+                  final data = docs[index];
+                  final docId = data['id']?.toString() ?? '';
+
+                  return BookCatalogCard(
+                    title: data['title'] ?? 'Untitled',
+                    author: data['author'] ?? 'Unknown Author',
+                    imageUrl: data['image_url'] ?? data['imageUrl'],
+                    onDelete: () => _controller.deleteBook(docId),
                   );
                 },
               );
@@ -383,8 +425,8 @@ class _AdminLibraryPageState extends State<AdminLibraryPage> {
   }
 
   void _showAddBook() {
-    final titleCtrl = TextEditingController();
-    final authorCtrl = TextEditingController();
+    final titleController = TextEditingController();
+    final authorController = TextEditingController();
 
     showDialog(
       context: context,
@@ -394,12 +436,19 @@ class _AdminLibraryPageState extends State<AdminLibraryPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
-              controller: titleCtrl,
-              decoration: const InputDecoration(labelText: "Book Title"),
+              controller: titleController,
+              decoration: const InputDecoration(
+                labelText: "Book Title",
+                border: OutlineInputBorder(),
+              ),
             ),
+            const SizedBox(height: 12),
             TextField(
-              controller: authorCtrl,
-              decoration: const InputDecoration(labelText: "Author"),
+              controller: authorController,
+              decoration: const InputDecoration(
+                labelText: "Author Name",
+                border: OutlineInputBorder(),
+              ),
             ),
           ],
         ),
@@ -410,15 +459,16 @@ class _AdminLibraryPageState extends State<AdminLibraryPage> {
           ),
           ElevatedButton(
             onPressed: () {
-              if (titleCtrl.text.isNotEmpty && authorCtrl.text.isNotEmpty) {
+              if (titleController.text.isNotEmpty &&
+                  authorController.text.isNotEmpty) {
                 _controller.addBook(
-                  title: titleCtrl.text,
-                  author: authorCtrl.text,
+                  title: titleController.text,
+                  author: authorController.text,
                 );
               }
               Navigator.pop(context);
             },
-            child: const Text("Add"),
+            child: const Text("Add Book"),
           ),
         ],
       ),

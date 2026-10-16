@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../features/prd/presentation/widgets/prd_task_card.dart';
 import '../features/prd/data/repositories/supabase_prd_repository.dart';
 
@@ -80,24 +80,24 @@ class _RequestHistoryPageState extends State<RequestHistoryPage> with SingleTick
   }
 
   Widget _buildFundHistory() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('purchase_requests')
-          .where('committeeName', isEqualTo: widget.committeeName)
-          .orderBy('createdAt', descending: true)
-          .snapshots(),
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: Supabase.instance.client
+          .from('purchase_requests')
+          .stream(primaryKey: ['id'])
+          .eq('committee_name', widget.committeeName)
+          .order('created_at', ascending: false),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        final docs = snapshot.data?.docs ?? [];
+        final docs = snapshot.data ?? [];
         if (docs.isEmpty) return _buildEmptyState("No fund request history found.");
 
         return ListView.builder(
           padding: const EdgeInsets.all(16),
           itemCount: docs.length,
           itemBuilder: (context, index) {
-            final data = docs[index].data() as Map<String, dynamic>;
+            final data = docs[index];
             return _buildFundCard(data);
           },
         );
@@ -107,9 +107,12 @@ class _RequestHistoryPageState extends State<RequestHistoryPage> with SingleTick
 
   Widget _buildFundCard(Map<String, dynamic> data) {
     final status = (data['status'] ?? 'pending') as String;
-    final amount = data['amount'] ?? data['estimatedCost'] ?? 0;
-    final createdAt = (data['createdAt'] ?? data['submittedAt']) as Timestamp?;
-    final dateStr = createdAt != null ? DateFormat('dd MMM yyyy').format(createdAt.toDate()) : '...';
+    final amount = data['amount'] ?? data['estimated_cost'] ?? data['estimatedCost'] ?? 0;
+    final rawDate = data['created_at'] ?? data['createdAt'] ?? data['submitted_at'];
+    DateTime? dt;
+    if (rawDate is DateTime) dt = rawDate;
+    if (rawDate is String) dt = DateTime.tryParse(rawDate);
+    final dateStr = dt != null ? DateFormat('dd MMM yyyy').format(dt.toLocal()) : '...';
     
     Color statusColor = Colors.orange;
     if (status == 'approved') statusColor = Colors.green;
@@ -124,7 +127,7 @@ class _RequestHistoryPageState extends State<RequestHistoryPage> with SingleTick
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-        title: Text(data['itemName'] ?? 'Purchase Request', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        title: Text(data['request_title'] ?? data['item_name'] ?? data['itemName'] ?? 'Purchase Request', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

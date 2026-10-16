@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 
 class AdminAeroLedgerPage extends StatefulWidget {
@@ -30,31 +30,32 @@ class _AdminAeroLedgerPageState extends State<AdminAeroLedgerPage> {
 
   Future<void> _checkAndTriggerSummaries() async {
     try {
-      final summaryRef = FirebaseFirestore.instance
-          .collection('system_status')
-          .doc('ledger_summary');
-      final summaryDoc = await summaryRef.get();
+      final client = Supabase.instance.client;
+      final summaryDoc = await client
+          .from('system_status')
+          .select()
+          .eq('key', 'ledger_summary')
+          .maybeSingle();
 
       final now = DateTime.now();
       bool shouldSendWeekly = false;
       bool shouldSendMonthly = false;
 
-      if (!summaryDoc.exists) {
-        // First time initialization - set to past so first run triggers if data exists
-        await summaryRef.set({
-          'lastWeeklySummary': Timestamp.fromDate(
-            now.subtract(const Duration(days: 8)),
-          ),
-          'lastMonthlySummary': Timestamp.fromDate(
-            DateTime(now.year, now.month - 1, 1),
-          ),
+      if (summaryDoc == null) {
+        // First time initialization
+        await client.from('system_status').insert({
+          'key': 'ledger_summary',
+          'last_weekly_summary': now.subtract(const Duration(days: 8)).toUtc().toIso8601String(),
+          'last_monthly_summary': DateTime(now.year, now.month - 1, 1).toUtc().toIso8601String(),
+          'opening_balance': 0,
         });
         return;
       }
 
-      final data = summaryDoc.data()!;
-      final lastWeekly = (data['lastWeeklySummary'] as Timestamp).toDate();
-      final lastMonthly = (data['lastMonthlySummary'] as Timestamp).toDate();
+      final lastWeeklyStr = summaryDoc['last_weekly_summary']?.toString();
+      final lastMonthlyStr = summaryDoc['last_monthly_summary']?.toString();
+      final lastWeekly = lastWeeklyStr != null ? DateTime.tryParse(lastWeeklyStr) ?? now : now;
+      final lastMonthly = lastMonthlyStr != null ? DateTime.tryParse(lastMonthlyStr) ?? now : now;
 
       // Check Weekly (7 days)
       if (now.difference(lastWeekly).inDays >= 7) {
@@ -79,47 +80,41 @@ class _AdminAeroLedgerPageState extends State<AdminAeroLedgerPage> {
         }
 
         // 1. Calculate Summary for the range
-        final ledgerSnapshot = await FirebaseFirestore.instance
-            .collection('aero_ledger')
-            .where(
-              'date',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(startTime),
-            )
-            .get();
+        final ledgerRows = await client
+            .from('aero_ledger')
+            .select('amount, type')
+            .gte('date', startTime.toUtc().toIso8601String());
 
         int totalIncome = 0;
         int totalExpense = 0;
-        for (var doc in ledgerSnapshot.docs) {
-          final d = doc.data();
-          final int amt = ((d['amount'] ?? 0) as num).toInt();
-          if (d['type'] == 'INCOME') {
+        for (var row in ledgerRows) {
+          final int amt = ((row['amount'] ?? 0) as num).toInt();
+          if (row['type'] == 'INCOME') {
             totalIncome += amt;
-          } else if (d['type'] == 'EXPENSE') {
+          } else if (row['type'] == 'EXPENSE') {
             totalExpense += amt;
           }
         }
 
         // 2. Find Directors
-        final directorSnapshot = await FirebaseFirestore.instance
-            .collection('students')
-            .where('role', isEqualTo: 'UNION_DIRECTOR')
-            .get();
+        final directors = await client
+            .from('students')
+            .select('student_id')
+            .eq('role', 'UNION_DIRECTOR');
 
-        if (directorSnapshot.docs.isNotEmpty) {
+        if (directors.isNotEmpty) {
           String title = "$periodName Financial Summary 📊";
           String message =
               "Income: +₹$totalIncome | Expenses: -₹$totalExpense (Net: ₹${totalIncome - totalExpense})";
 
-          for (var directorDoc in directorSnapshot.docs) {
-            final directorData = directorDoc.data();
-            final studentID = directorData['studentID'];
-
-            if (studentID != null) {
-              await FirebaseFirestore.instance.collection('notifications').add({
-                'studentID': studentID,
+          for (var director in directors) {
+            final studentID = director['student_id']?.toString();
+            if (studentID != null && studentID.isNotEmpty) {
+              await client.from('notifications').insert({
+                'student_id': studentID,
                 'title': title,
                 'message': message,
-                'createdAt': FieldValue.serverTimestamp(),
+                'type': 'summary',
               });
             }
           }
@@ -128,12 +123,12 @@ class _AdminAeroLedgerPageState extends State<AdminAeroLedgerPage> {
         // 3. Update status
         Map<String, dynamic> updates = {};
         if (shouldSendWeekly) {
-          updates['lastWeeklySummary'] = Timestamp.fromDate(now);
+          updates['last_weekly_summary'] = now.toUtc().toIso8601String();
         }
         if (shouldSendMonthly) {
-          updates['lastMonthlySummary'] = Timestamp.fromDate(now);
+          updates['last_monthly_summary'] = now.toUtc().toIso8601String();
         }
-        await summaryRef.update(updates);
+        await client.from('system_status').update(updates).eq('key', 'ledger_summary');
       }
     } catch (e) {
       debugPrint("Error checking summaries: $e");
@@ -174,11 +169,11 @@ class _AdminAeroLedgerPageState extends State<AdminAeroLedgerPage> {
         centerTitle: true,
       ),
       body: SafeArea(
-        child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
-              .collection('aero_ledger')
-              .orderBy('date', descending: true)
-              .snapshots(),
+        child: StreamBuilder<List<Map<String, dynamic>>>(
+          stream: Supabase.instance.client
+              .from('aero_ledger')
+              .stream(primaryKey: ['id'])
+              .order('date', ascending: false),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
@@ -186,33 +181,27 @@ class _AdminAeroLedgerPageState extends State<AdminAeroLedgerPage> {
 
             int totalIncome = 0;
             int totalExpense = 0;
-            List<QueryDocumentSnapshot<Map<String, dynamic>>> docs = [];
+            final docs = snapshot.data ?? [];
 
-            if (snapshot.hasData) {
-              docs = snapshot.data!.docs;
-              for (var doc in docs) {
-                final data = doc.data();
-                final int amt = ((data['amount'] ?? 0) as num).toInt();
-                if (data['type'] == 'INCOME') {
-                  totalIncome += amt;
-                } else if (data['type'] == 'EXPENSE') {
-                  totalExpense += amt;
-                }
+            for (var data in docs) {
+              final int amt = ((data['amount'] ?? 0) as num).toInt();
+              if (data['type'] == 'INCOME') {
+                totalIncome += amt;
+              } else if (data['type'] == 'EXPENSE') {
+                totalExpense += amt;
               }
             }
 
-            return StreamBuilder<DocumentSnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('system_status')
-                  .doc('ledger_summary')
-                  .snapshots(),
+            return StreamBuilder<List<Map<String, dynamic>>>(
+              stream: Supabase.instance.client
+                  .from('system_status')
+                  .stream(primaryKey: ['id'])
+                  .eq('key', 'ledger_summary'),
               builder: (context, balanceSnapshot) {
                 int openingBalance = 0;
-                if (balanceSnapshot.hasData && balanceSnapshot.data!.exists) {
-                  final data =
-                      balanceSnapshot.data!.data() as Map<String, dynamic>?;
-                  openingBalance = ((data?['openingBalance'] ?? 0) as num)
-                      .toInt();
+                if (balanceSnapshot.hasData && balanceSnapshot.data!.isNotEmpty) {
+                  final row = balanceSnapshot.data!.first;
+                  openingBalance = ((row['opening_balance'] ?? 0) as num).toInt();
                 }
 
                 int currentBalance =
@@ -246,8 +235,8 @@ class _AdminAeroLedgerPageState extends State<AdminAeroLedgerPage> {
                     ),
                     SliverList(
                       delegate: SliverChildBuilderDelegate((context, index) {
-                        final data = docs[index].data();
-                        return _buildTransactionItem(data, docs[index].id);
+                        final data = docs[index];
+                        return _buildTransactionItem(data, data['id']?.toString() ?? '');
                       }, childCount: docs.length),
                     ),
                     const SliverToBoxAdapter(
@@ -451,10 +440,10 @@ class _AdminAeroLedgerPageState extends State<AdminAeroLedgerPage> {
                     Navigator.pop(context); // Close dialog early for better UX
 
                     try {
-                      await FirebaseFirestore.instance
-                          .collection('aero_ledger')
-                          .add({
-                            'date': Timestamp.fromDate(selectedDate),
+                      await Supabase.instance.client
+                          .from('aero_ledger')
+                          .insert({
+                            'date': selectedDate.toUtc().toIso8601String(),
                             'subcommittee': selectedSub,
                             'purpose': purposeCtrl.text.trim().toUpperCase(),
                             'type': selectedType,
@@ -546,13 +535,14 @@ class _AdminAeroLedgerPageState extends State<AdminAeroLedgerPage> {
     final balanceCtrl = TextEditingController();
 
     // Fetch current setting first to pre-fill
-    FirebaseFirestore.instance
-        .collection('system_status')
-        .doc('ledger_summary')
-        .get()
-        .then((doc) {
-          if (doc.exists) {
-            final currentOpen = (doc.data()?['openingBalance'] ?? 0).toString();
+    Supabase.instance.client
+        .from('system_status')
+        .select('opening_balance')
+        .eq('key', 'ledger_summary')
+        .maybeSingle()
+        .then((row) {
+          if (row != null) {
+            final currentOpen = (row['opening_balance'] ?? 0).toString();
             balanceCtrl.text = currentOpen;
           }
         });
@@ -596,12 +586,12 @@ class _AdminAeroLedgerPageState extends State<AdminAeroLedgerPage> {
               ),
               onPressed: () async {
                 final newAmount = int.tryParse(balanceCtrl.text) ?? 0;
-                await FirebaseFirestore.instance
-                    .collection('system_status')
-                    .doc('ledger_summary')
-                    .set({
-                      'openingBalance': newAmount,
-                    }, SetOptions(merge: true));
+                await Supabase.instance.client
+                    .from('system_status')
+                    .upsert({
+                      'key': 'ledger_summary',
+                      'opening_balance': newAmount,
+                    }, onConflict: 'key');
 
                 if (ctx.mounted) Navigator.pop(ctx);
               },
@@ -716,14 +706,13 @@ class _AdminAeroLedgerPageState extends State<AdminAeroLedgerPage> {
 
     // Format timestamp safely
     String dateStr = "Unknown Date";
-    if (tx['date'] != null) {
-      if (tx['date'] is Timestamp) {
-        dateStr = DateFormat(
-          'dd MMM yyyy',
-        ).format((tx['date'] as Timestamp).toDate());
-      } else if (tx['date'] is String) {
-        dateStr =
-            tx['date']; // fallback for older hardcoded mock ones if they sneak in
+    final rawDate = tx['date'];
+    if (rawDate != null) {
+      DateTime? dt;
+      if (rawDate is DateTime) dt = rawDate;
+      if (rawDate is String) dt = DateTime.tryParse(rawDate);
+      if (dt != null) {
+        dateStr = DateFormat('dd MMM yyyy').format(dt.toLocal());
       }
     }
 
@@ -739,10 +728,10 @@ class _AdminAeroLedgerPageState extends State<AdminAeroLedgerPage> {
       ),
       onDismissed: (direction) async {
         try {
-          await FirebaseFirestore.instance
-              .collection('aero_ledger')
-              .doc(docId)
-              .delete();
+          await Supabase.instance.client
+              .from('aero_ledger')
+              .delete()
+              .eq('id', docId);
         } catch (e) {
           debugPrint("Failed to delete entry: $e");
         }

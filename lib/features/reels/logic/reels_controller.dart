@@ -63,7 +63,7 @@ class ReelsController extends ChangeNotifier {
     }
   }
 
-  Stream getReelsStream(String committee) =>
+  Stream<List<Map<String, dynamic>>> getReelsStream(String committee) =>
       _repository.getReelsStream(committee);
   Future<void> deleteReel(String docId, String imageUrl) =>
       _repository.deleteReel(docId, imageUrl);

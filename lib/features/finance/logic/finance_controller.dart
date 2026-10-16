@@ -1,20 +1,15 @@
 // lib/features/finance/logic/finance_controller.dart
 
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../data/repositories/finance_repository.dart';
-import '../data/repositories/firestore_finance_repository.dart';
+import '../data/repositories/supabase_finance_repository.dart';
 
 class FinanceController extends ChangeNotifier {
-  final FinanceRepository _repository = FirestoreFinanceRepository();
-  late final Stream<QuerySnapshot> studentsStream = _repository
-      .getStudentsStream()
-      .asBroadcastStream();
-  late final Stream<QuerySnapshot> treasuryStream = _repository
-      .getTreasuryStream()
-      .asBroadcastStream();
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> aeroLedgerStream =
-      _repository.getAeroLedgerStream().asBroadcastStream();
+  final FinanceRepository _repository;
+
+  late final Stream<List<Map<String, dynamic>>> studentsStream;
+  late final Stream<List<Map<String, dynamic>>> treasuryStream;
+  late final Stream<List<Map<String, dynamic>>> aeroLedgerStream;
 
   // --- Dues State Variables ---
   String _selectedClass = "All";
@@ -22,6 +17,13 @@ class FinanceController extends ChangeNotifier {
 
   String get selectedClass => _selectedClass;
   String get searchQuery => _searchQuery;
+
+  FinanceController({FinanceRepository? repository})
+      : _repository = repository ?? SupabaseFinanceRepository() {
+    studentsStream = _repository.getStudentsStream().asBroadcastStream();
+    treasuryStream = _repository.getTreasuryStream().asBroadcastStream();
+    aeroLedgerStream = _repository.getAeroLedgerStream().asBroadcastStream();
+  }
 
   void _showError(BuildContext context, String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -56,14 +58,17 @@ class FinanceController extends ChangeNotifier {
     notifyListeners();
   }
 
-
   // --- Stream Getters ---
-  Stream<QuerySnapshot> getPaymentHistory(String id, CollectionType type) =>
+  Stream<List<Map<String, dynamic>>> getPaymentHistory(
+    String id,
+    CollectionType type,
+  ) =>
       _repository.getPaymentHistoryStream(id, type);
-  Stream<QuerySnapshot> getStudentSavings(String id) =>
+
+  Stream<List<Map<String, dynamic>>> getStudentSavings(String id) =>
       _repository.getStudentSavingsHistory(id);
 
-  Stream<QuerySnapshot> getPurchaseRequests(String status) =>
+  Stream<List<Map<String, dynamic>>> getPurchaseRequests(String status) =>
       _repository.getPurchaseRequestsStream(status);
 
   // --- Dues Logic ---
@@ -154,7 +159,10 @@ class FinanceController extends ChangeNotifier {
     }
   }
 
-  Future<void> deleteLedger({required BuildContext context, required String docId}) async {
+  Future<void> deleteLedger({
+    required BuildContext context,
+    required String docId,
+  }) async {
     try {
       await _repository.deleteLedgerEntry(docId);
       if (context.mounted) _showSuccess(context, "Ledger entry deleted.");
@@ -165,7 +173,10 @@ class FinanceController extends ChangeNotifier {
   }
 
   // --- Purchase Logic ---
-  Future<void> approvePurchase({required BuildContext context, required String docId}) async {
+  Future<void> approvePurchase({
+    required BuildContext context,
+    required String docId,
+  }) async {
     try {
       await _repository.approvePurchaseRequest(docId);
       if (context.mounted) _showSuccess(context, "Request approved.");
@@ -175,7 +186,11 @@ class FinanceController extends ChangeNotifier {
     }
   }
 
-  Future<void> rejectPurchase({required BuildContext context, required String docId, String? reason}) async {
+  Future<void> rejectPurchase({
+    required BuildContext context,
+    required String docId,
+    String? reason,
+  }) async {
     try {
       await _repository.rejectPurchaseRequest(docId, reason);
       if (context.mounted) _showSuccess(context, "Request rejected.");
@@ -185,7 +200,10 @@ class FinanceController extends ChangeNotifier {
     }
   }
 
-  Future<void> deletePurchase({required BuildContext context, required String docId}) async {
+  Future<void> deletePurchase({
+    required BuildContext context,
+    required String docId,
+  }) async {
     try {
       await _repository.deletePurchaseRequest(docId);
       if (context.mounted) _showSuccess(context, "Request deleted.");
@@ -196,12 +214,10 @@ class FinanceController extends ChangeNotifier {
   }
 
   // --- Settings Logic ---
-  Stream<DocumentSnapshot> get unionSettingsStream => 
-      FirebaseFirestore.instance.collection('settings').doc('finance').snapshots();
+  Stream<Map<String, dynamic>> get unionSettingsStream =>
+      _repository.getUnionSettingsStream();
 
   Future<void> updateUnionDueAmount(int amount) async {
-    await FirebaseFirestore.instance.collection('settings').doc('finance').set({
-      'unionDueAmount': amount,
-    }, SetOptions(merge: true));
+    await _repository.updateUnionDueAmount(amount);
   }
 }

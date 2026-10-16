@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="MUSF - Majlis Umariyya Students Federation">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="MUSF">
+  <link rel="apple-touch-icon" href="icons/Icon-192_musf.png?v=3">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon_musf.png?v=3" />
+
+  <title>MUSF</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #f8fafc;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+    }
+
+    #splash-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      z-index: 9999;
+      background-color: #0b1c31;
+    }
+
+    .logo-container {
+      position: relative;
+      width: 150px;
+      height: 150px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 40px;
+    }
+
+    .logo-img {
+      width: 90px;
+      height: 90px;
+      border-radius: 50%;
+      object-fit: contain;
+      z-index: 2;
+    }
+
+    .spinner-1,
+    .spinner-2 {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 150px;
+      height: 150px;
+      border-radius: 50%;
+      border: 3px solid transparent;
+      z-index: 1;
+    }
+
+    .spinner-1 {
+      border-top-color: #ffffff;
+      border-bottom-color: rgba(255, 255, 255, 0.3);
+      animation: spin1 2s linear infinite;
+    }
+
+    .spinner-2 {
+      border-left-color: #61b1ff;
+      border-right-color: rgba(97, 177, 255, 0.3);
+      width: 130px;
+      height: 130px;
+      top: 10px;
+      left: 10px;
+      animation: spin2 1.5s cubic-bezier(0.68, -0.55, 0.265, 1.55) infinite;
+    }
+
+    @keyframes spin1 {
+      0% {
+        transform: rotate(0deg) scale(1);
+      }
+
+      50% {
+        transform: rotate(180deg) scale(1.05);
+      }
+
+      100% {
+        transform: rotate(360deg) scale(1);
+      }
+    }
+
+    @keyframes spin2 {
+      0% {
+        transform: rotate(360deg);
+      }
+
+      100% {
+        transform: rotate(0deg);
+      }
+    }
+
+    .dots-container {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 25px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      background-color: #61b1ff;
+      border-radius: 50%;
+      opacity: 0;
+      animation: pulse-dot 1.5s infinite ease-in-out;
+    }
+
+    .dot:nth-child(1) {
+      animation-delay: 0s;
+    }
+
+    .dot:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+
+    .dot:nth-child(3) {
+      animation-delay: 0.4s;
+    }
+
+    @keyframes pulse-dot {
+
+      0%,
+      100% {
+        transform: scale(0.5);
+        opacity: 0.2;
+      }
+
+      50% {
+        transform: scale(1.2);
+        opacity: 1;
+        box-shadow: 0 0 8px rgba(97, 177, 255, 0.6);
+      }
+    }
+
+    .title {
+      color: #ffffff;
+      font-size: 26px;
+      font-weight: bold;
+      letter-spacing: 4px;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+    }
+
+    .subtitle {
+      color: #5d7088;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      text-align: center;
+      max-width: 80%;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="splash-screen">
+    <div class="logo-container">
+      <div class="spinner-1"></div>
+      <div class="spinner-2"></div>
+      <img src="musf_logo.png?v=3" alt="MUSF Logo" class="logo-img" onerror="this.style.display='none'">
+    </div>
+    <div class="dots-container">
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+    </div>
+    <div class="title" style="visibility: visible !important; opacity: 1 !important;">MUSF</div>
+    <div class="subtitle" style="visibility: visible !important; opacity: 1 !important;">Majlis Umariyya Students Federation</div>
+  </div>
+
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+
+</html>

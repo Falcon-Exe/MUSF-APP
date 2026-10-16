@@ -1,0 +1,62 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if the user is an admin
+    function isAdmin() {
+      let student = get(/databases/$(database)/documents/students/$(request.auth.uid)).data;
+      return request.auth != null && 
+             (student.isAdmin == true || student.isAdmin == 'true' || 
+              student.Admin == true || student.Admin == 'true' ||
+              student.admin == true || student.admin == 'true' ||
+              student.role == 'admin');
+    }
+
+    // Students collection: Anyone can read, only admins can modify
+    match /students/{studentDoc} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // Sammyjam performances: Anyone can read, only admins can modify
+    match /samajyam_performances/{perfDoc} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // Notifications: Students can read/update their own, admins can write to all
+    match /notifications/{notifDoc} {
+      allow read, update: if request.auth != null && request.auth.token.email.split('@')[0] == resource.data.studentID;
+      allow create, delete: if isAdmin();
+    }
+
+    // Committee Notifications: Historcal records
+    match /committee_notifications/{notifDoc} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // Leadership, Events, etc.
+    match /leadership/{doc} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    match /arts_events/{doc} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    match /sports_events/{doc} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // Default: Authenticated read, admin write
+    match /{path=**} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+  }
+}

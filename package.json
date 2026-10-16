@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "firebase": "^12.18.0"
+  },
+  "devDependencies": {
+    "jimp": "^1.6.0"
+  }
+}

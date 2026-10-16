@@ -1,0 +1,60 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "musf-app",
+          "appId": "1:267113746370:android:1a2f2fc2827cb59a53505b",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "musf-app",
+          "configurations": {
+            "android": "1:267113746370:android:1a2f2fc2827cb59a53505b",
+            "ios": "1:267113746370:web:6161d8794e25554253505b",
+            "macos": "1:267113746370:web:6161d8794e25554253505b",
+            "web": "1:267113746370:web:6161d8794e25554253505b",
+            "windows": "1:267113746370:web:6161d8794e25554253505b"
+          }
+        }
+      }
+    }
+  },
+  "hosting": {
+    "public": "build/web",
+    "ignore": [
+      "firebase.json",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log"
+      ]
+    }
+  ],
+  "emulators": {
+    "functions": {
+      "port": 5001
+    },
+    "ui": {
+      "enabled": true,
+      "port": 4000
+    },
+    "singleProjectMode": true
+  }
+}
